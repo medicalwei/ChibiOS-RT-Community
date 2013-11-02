@@ -135,7 +135,9 @@ static void otg_core_reset(USBDriver *usbp) {
   otgp->GRSTCTL = GRSTCTL_CSRST;
   while ((otgp->GRSTCTL & GRSTCTL_CSRST) != 0)
     ;
+
   halPolledDelay(12);
+
   /* Wait AHB idle condition.*/
   while ((otgp->GRSTCTL & GRSTCTL_AHBIDL) == 0)
     ;
