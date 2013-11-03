@@ -20,6 +20,8 @@
 
 #include "chprintf.h"
 #include "shell.h"
+#include "usbcfg.h"
+
 #include "stmdrivers/stm32f429i_discovery_sdram.h"
 #include "stmdrivers/stm32f4xx_fmc.h"
 
@@ -60,6 +62,9 @@ static msg_t Thread2(void *arg) {
 /*===========================================================================*/
 /* Command line related.                                                     */
 /*===========================================================================*/
+
+/* Virtual serial port over USB.*/
+SerialUSBDriver SDU1;
 
 #define SHELL_WA_SIZE   THD_WA_SIZE(2048)
 #define TEST_WA_SIZE    THD_WA_SIZE(256)
@@ -376,7 +381,7 @@ static const ShellCommand commands[] = {
 };
 
 static const ShellConfig shell_cfg1 = {
-  (BaseSequentialStream *)&SD1,
+  (BaseSequentialStream *)&SDU1,
   commands
 };
 
@@ -405,14 +410,21 @@ int main(void) {
    */
   shellInit();
 
-  //Configure pins for USART1
-  palSetPadMode(GPIOA, GPIOA_PIN9, PAL_MODE_ALTERNATE(7));
-  palSetPadMode(GPIOA, GPIOA_PIN10, PAL_MODE_ALTERNATE(7));
+  /*
+   * Initializes a serial-over-USB CDC driver.
+   */
+  sduObjectInit(&SDU1);
+  sduStart(&SDU1, &serusbcfg);
 
   /*
-   * Initializes serial on USART1 with default configuration
+   * Activates the USB driver and then the USB bus pull-up on D+.
+   * Note, a delay is inserted in order to not have to disconnect the cable
+   * after a reset.
    */
-  sdStart(&SD1, NULL);
+  usbDisconnectBus(serusbcfg.usbp);
+  chThdSleepMilliseconds(1000);
+  usbStart(serusbcfg.usbp, &usbcfg);
+  usbConnectBus(serusbcfg.usbp);
 
   /*
    * Creating the blinker threads.
@@ -434,8 +446,10 @@ int main(void) {
    */
   while (TRUE) {
     if (!shelltp) {
-      /* Spawns a new shell.*/
-      shelltp = shellCreate(&shell_cfg1, SHELL_WA_SIZE, NORMALPRIO);
+      if (SDU1.config->usbp->state == USB_ACTIVE) {
+        /* Spawns a new shell.*/
+        shelltp = shellCreate(&shell_cfg1, SHELL_WA_SIZE, NORMALPRIO);
+      }
     }
     else {
       /* If the previous shell exited.*/
