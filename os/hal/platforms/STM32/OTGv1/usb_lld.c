@@ -128,8 +128,7 @@ static void usb_lld_wakeup_pump(USBDriver *usbp) {
 static void otg_core_reset(USBDriver *usbp) {
   stm32_otg_t *otgp = usbp->otg;
 
-  //FIXME: Makes things work for me, otherwise hangs on following loop.
-  chThdSleepMilliseconds(1);
+  halPolledDelay(32);
 
   /* Core reset and delay of at least 3 PHY cycles.*/
   otgp->GRSTCTL = GRSTCTL_CSRST;
