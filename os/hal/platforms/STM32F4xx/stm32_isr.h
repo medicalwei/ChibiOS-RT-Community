@@ -125,6 +125,16 @@
 #define STM32_USART6_NUMBER         USART6_IRQn
 /** @} */
 
+/*
+ * LTDC unit.
+ */
+#define STM32_LTDC_EV_HANDLER       LTDC_EV_IRQHandler
+#define STM32_LTDC_ER_HANDLER       LTDC_ER_IRQHandler
+
+#define STM32_LTDC_EV_NUMBER        LTDC_IRQn
+#define STM32_LTDC_ER_NUMBER        LTDC_ER_IRQn
+/** @} */
+
 /*===========================================================================*/
 /* Driver pre-compile time settings.                                         */
 /*===========================================================================*/

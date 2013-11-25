@@ -19,16 +19,17 @@
 */
 
 /*
- * ST32F407xG memory setup.
+ * ST32F429xI memory setup.
  */
 __main_stack_size__     = 0x0400;
 __process_stack_size__  = 0x0400;
 
 MEMORY
 {
-    flash : org = 0x08000000, len = 1M
-    ram : org = 0x20000000, len = 112k
-    ethram : org = 0x2001C000, len = 16k
+    flash  : org = 0x08000000, len = 2M
+    ram    : org = 0x20000000, len = 112k
+    ram2   : org = 0x2001C000, len = 16k
+    ram3   : org = 0x20020000, len = 64k
     ccmram : org = 0x10000000, len = 64k
 }
 
@@ -145,6 +146,26 @@ SECTIONS
         PROVIDE(_ccm_end = .);
     } > ccmram
 
+    .ram2 :
+    {
+        PROVIDE(_ram2_start = .);
+        . = ALIGN(4);
+        *(.ram2);
+        *(.ram2.*);
+        . = ALIGN(4);
+        PROVIDE(_ram2_end = .);
+    } > ram2
+
+    .ram3 :
+    {
+        PROVIDE(_ram3_start = .);
+        . = ALIGN(4);
+        *(.ram3);
+        *(.ram3.*);
+        . = ALIGN(4);
+        PROVIDE(_ram3_end = .);
+    } > ram3
+
     .data :
     {
         . = ALIGN(4);
@@ -169,7 +190,7 @@ SECTIONS
         *(COMMON)
         . = ALIGN(4);
         PROVIDE(_bss_end = .);
-    } > ram    
+    } > ram
 }
 
 PROVIDE(end = .);
