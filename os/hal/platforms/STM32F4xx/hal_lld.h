@@ -318,6 +318,13 @@
 #define STM32_I2SSRC_PLLI2S     (0 << 23)   /**< I2SSRC is PLLI2S.          */
 #define STM32_I2SSRC_CKIN       (1 << 23)   /**< I2S_CKIN is PLLI2S.        */
 
+#define STM32_SAISRC_NOCLOCK    (0 << 23)   /**< No clock.                  */
+#define STM32_SAISRC_PLL        (1 << 23)   /**< SAI_CKIN is PLL.           */
+#define STM32_SAIR_DIV2         (0 << 16)   /**< R divided by 2.            */
+#define STM32_SAIR_DIV4         (1 << 16)   /**< R divided by 4.            */
+#define STM32_SAIR_DIV8         (2 << 16)   /**< R divided by 8.            */
+#define STM32_SAIR_DIV16        (3 << 16)   /**< R divided by 16.           */
+
 #define STM32_MCO1PRE_MASK      (7 << 24)   /**< MCO1PRE mask.              */
 #define STM32_MCO1PRE_DIV1      (0 << 24)   /**< MCO1 divided by 1.         */
 #define STM32_MCO1PRE_DIV2      (4 << 24)   /**< MCO1 divided by 2.         */
@@ -481,6 +488,36 @@
                                  STM32_DMA_STREAM_ID_MSK(1, 7))
 #define STM32_SPI3_TX_DMA_CHN   0x00000000
 
+#ifdef STM32F429_439xx
+
+#define STM32_HAS_SPI4          TRUE
+#define STM32_SPI4_RX_DMA_MSK   (STM32_DMA_STREAM_ID_MSK(2, 0) |            \
+                                 STM32_DMA_STREAM_ID_MSK(2, 3))
+#define STM32_SPI4_RX_DMA_CHN   0x00005004
+#define STM32_SPI4_TX_DMA_MSK   (STM32_DMA_STREAM_ID_MSK(2, 1) |            \
+                                 STM32_DMA_STREAM_ID_MSK(2, 4))
+#define STM32_SPI4_TX_DMA_CHN   0x00050040
+
+#define STM32_HAS_SPI5          TRUE
+#define STM32_SPI5_RX_DMA_MSK   (STM32_DMA_STREAM_ID_MSK(2, 3) |            \
+                                 STM32_DMA_STREAM_ID_MSK(2, 5))
+#define STM32_SPI5_RX_DMA_CHN   0x00702000
+#define STM32_SPI5_TX_DMA_MSK   (STM32_DMA_STREAM_ID_MSK(2, 4) |            \
+                                 STM32_DMA_STREAM_ID_MSK(2, 6))
+#define STM32_SPI5_TX_DMA_CHN   0x07020000
+
+#define STM32_HAS_SPI6          TRUE
+#define STM32_SPI6_RX_DMA_MSK   (STM32_DMA_STREAM_ID_MSK(2, 6))
+#define STM32_SPI6_RX_DMA_CHN   0x01000000
+#define STM32_SPI6_TX_DMA_MSK   (STM32_DMA_STREAM_ID_MSK(2, 5))
+#define STM32_SPI6_TX_DMA_CHN   0x00100000
+
+#else
+#define STM32_HAS_SPI4          FALSE
+#define STM32_HAS_SPI5          FALSE
+#define STM32_HAS_SPI6          FALSE
+#endif /* STM32F429_439xx */
+
 /* TIM attributes.*/
 #define STM32_HAS_TIM1          TRUE
 #define STM32_HAS_TIM2          TRUE
@@ -548,6 +585,13 @@
 #define STM32_HAS_OTG1          TRUE
 #define STM32_HAS_OTG2          TRUE
 /** @} */
+
+/* LTDC attributes.*/
+#ifdef STM32F429_439xx
+#define STM32_HAS_LTDC          TRUE
+#else
+#define STM32_HAS_LTDC          FALSE
+#endif
 
 /*===========================================================================*/
 /* Platform specific friendly IRQ names.                                     */
@@ -639,15 +683,17 @@
 #define I2C3_EV_IRQHandler      Vector160   /**< I2C3 Event.                */
 #define I2C3_ER_IRQHandler      Vector164   /**< I2C3 Error.                */
 #define OTG_HS_EP1_OUT_IRQHandler Vector168 /**< USB OTG HS End Point 1 Out.*/
-#define OTG_HS_EP1_IN_IRQHandler Vector16C  /**< USB OTG HS End Point 1 In. */                                                 
+#define OTG_HS_EP1_IN_IRQHandler Vector16C  /**< USB OTG HS End Point 1 In. */
 #define OTG_HS_WKUP_IRQHandler  Vector170   /**< USB OTG HS Wakeup through
                                                  EXTI line.                 */
-#define OTG_HS_IRQHandler       Vector174   /**< USB OTG HS.                */ 
-#define DCMI_IRQHandler         Vector178   /**< DCMI.                      */ 
-#define CRYP_IRQHandler         Vector17C   /**< CRYP.                      */ 
-#define HASH_RNG_IRQHandler     Vector180   /**< Hash and Rng.              */ 
+#define OTG_HS_IRQHandler       Vector174   /**< USB OTG HS.                */
+#define DCMI_IRQHandler         Vector178   /**< DCMI.                      */
+#define CRYP_IRQHandler         Vector17C   /**< CRYP.                      */
+#define HASH_RNG_IRQHandler     Vector180   /**< Hash and Rng.              */
 #if defined(STM32F4XX) || defined(__DOXYGEN__)
 #define FPU_IRQHandler          Vector184   /**< Floating Point Unit.       */
+#define LTDC_EV_IRQHandler      Vector1A0   /**< LTDC event.                */
+#define LTDC_ER_IRQHandler      Vector1A4   /**< LTDC error.                */
 #endif
 /** @} */
 
@@ -1469,6 +1515,48 @@
 #error "invalid STM32_PLLI2SR_VALUE value specified"
 #endif
 
+/*
+ * PLLSAI enable check.
+ */
+#if (STM32_SAISRC == STM32_SAISRC_PLL) || defined(__DOXYGEN__)
+/**
+ * @brief   PLL activation flag.
+ */
+#define STM32_ACTIVATE_PLLSAI       TRUE
+#else
+#define STM32_ACTIVATE_PLLSAI       FALSE
+#endif
+
+/**
+ * @brief   STM32_PLLSAIN field.
+ */
+#if ((STM32_PLLSAIN_VALUE >= 49) && (STM32_PLLSAIN_VALUE <= 432)) ||       \
+    defined(__DOXYGEN__)
+#define STM32_PLLSAIN               (STM32_PLLSAIN_VALUE << 6)
+#else
+#error "invalid STM32_PLLSAIN_VALUE value specified"
+#endif
+
+/**
+ * @brief   STM32_PLLSAIQ field.
+ */
+#if ((STM32_PLLSAIQ_VALUE >= 2) && (STM32_PLLSAIQ_VALUE <= 15)) ||           \
+    defined(__DOXYGEN__)
+#define STM32_PLLSAIQ               (STM32_PLLSAIQ_VALUE << 24)
+#else
+#error "invalid STM32_PLLSAIR_VALUE value specified"
+#endif
+
+/**
+ * @brief   STM32_PLLSAIR field.
+ */
+#if ((STM32_PLLSAIR_VALUE >= 2) && (STM32_PLLSAIR_VALUE <= 7)) ||           \
+    defined(__DOXYGEN__)
+#define STM32_PLLSAIR               (STM32_PLLSAIR_VALUE << 28)
+#else
+#error "invalid STM32_PLLSAIR_VALUE value specified"
+#endif
+
 /**
  * @brief   PLL VCO frequency.
  */
@@ -1690,7 +1778,7 @@ typedef uint32_t halrtcnt_t;
 /* External declarations.                                                    */
 /*===========================================================================*/
 
-/* STM32 ISR, DMA and RCC helpers.*/
+/* STM32 helpers and custom drivers.*/
 #include "stm32_isr.h"
 #include "stm32_dma.h"
 #include "stm32_rcc.h"

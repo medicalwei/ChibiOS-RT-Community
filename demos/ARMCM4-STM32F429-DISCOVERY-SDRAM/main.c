@@ -25,6 +25,9 @@
 #include "stmdrivers/stm32f429i_discovery_sdram.h"
 #include "stmdrivers/stm32f4xx_fmc.h"
 
+#include "stm32_ltdc.h"
+#include "ili9341.h"
+
 #define IS42S16400J_SIZE             0x400000
 
 /*
@@ -41,6 +44,7 @@ static msg_t Thread1(void *arg) {
     palSetPad(GPIOG, GPIOG_LED4_RED);
     chThdSleepMilliseconds(500);
   }
+  return CH_SUCCESS;
 }
 
 /*
@@ -57,6 +61,312 @@ static msg_t Thread2(void *arg) {
     palSetPad(GPIOG, GPIOG_LED3_GREEN);
     chThdSleepMilliseconds(250);
   }
+  return CH_SUCCESS;
+}
+
+/*===========================================================================*/
+/* LTDC related.                                                             */
+/*===========================================================================*/
+
+static uint8_t frame_buffer[240 * 320];
+
+extern const ltdc_color_t wolf3d_palette[256];
+
+static const ltdc_window_t window_specs1 = {
+  0,
+  240 - 1,
+  0,
+  320 - 1
+};
+
+static const ltdc_frame_t frame_specs1 = {
+  frame_buffer,
+  240,
+  320,
+  240 * sizeof(uint8_t),
+  LTDC_FMT_L8
+};
+
+static const ltdc_laycfg_t ltdc_laycfg1 = {
+  &frame_specs1,
+  &window_specs1,
+  LTDC_COLOR_FUCHSIA,
+  0x980088,
+  wolf3d_palette,
+  256,
+  0xFF,
+  LTDC_BLEND_FIX1_FIX2,
+  LTDC_LEF_ENABLE | LTDC_LEF_PALETTE
+};
+
+static const LTDCConfig ltdc_cfg = {
+  /* Display specifications.*/
+  240,                              /**< Screen pixel width.*/
+  320,                              /**< Screen pixel height.*/
+  10,                               /**< Horizontal sync pixel width.*/
+  2,                                /**< Vertical sync pixel height.*/
+  20,                               /**< Horizontal back porch pixel width.*/
+  2,                                /**< Vertical back porch pixel height.*/
+  10,                               /**< Horizontal front porch pixel width.*/
+  4,                                /**< Vertical front porch pixel height.*/
+  0,                                /**< Driver configuration flags.*/
+
+  /* ISR callbacks.*/
+  NULL,                             /**< Line Interrupt ISR, or @p NULL.*/
+  NULL,                             /**< Register Reload ISR, or @p NULL.*/
+  NULL,                             /**< FIFO Underrun ISR, or @p NULL.*/
+  NULL,                             /**< Transfer Error ISR, or @p NULL.*/
+
+  /* Color and layer settings.*/
+  LTDC_COLOR_TEAL,
+  {
+    &ltdc_laycfg1,
+    NULL
+  }
+};
+
+extern LTDCDriver LTDCD1;
+
+const SPIConfig spi_cfg5 = {
+  NULL,
+  GPIOC,
+  GPIOC_SPI5_LCD_CS,
+  ((1 << 3) & SPI_CR1_BR) | SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_MSTR
+};
+
+extern SPIDriver SPID5;
+
+const ILI9341Config ili9341_cfg = {
+  &SPID5,
+  GPIOD,
+  GPIOD_LCD_WRX
+};
+
+ILI9341Driver ILI9341D1;
+
+static void initialize_lcd(void) {
+
+  static const uint8_t pgamma[15] = {
+    0x0F, 0x29, 0x24, 0x0C, 0x0E, 0x09, 0x4E, 0x78,
+    0x3C, 0x09, 0x13, 0x05, 0x17, 0x11, 0x00
+  };
+  static const uint8_t ngamma[15] = {
+    0x00, 0x16, 0x1B, 0x04, 0x11, 0x07, 0x31, 0x33,
+    0x42, 0x05, 0x0C, 0x0A, 0x28, 0x2F, 0x0F
+  };
+
+  ILI9341Driver *const lcdp = &ILI9341D1;
+
+  /* XOR-checkerboard texture.*/
+  unsigned x, y;
+  for (y = 0; y < 320; ++y)
+    for (x = 0; x < 240; ++x)
+      frame_buffer[y * 240 + x] = (uint8_t)(x ^ y);
+
+  ili9341Select(lcdp);
+
+#if 1
+  ili9341WriteCommand(lcdp, ILI9341_SET_FRAME_CTL_NORMAL);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x1B);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_FUNCTION_CTL);
+  ili9341WriteByte(lcdp, 0x0A);
+  ili9341WriteByte(lcdp, 0xA2);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_POWER_CTL_1);
+  ili9341WriteByte(lcdp, 0x10);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_POWER_CTL_2);
+  ili9341WriteByte(lcdp, 0x10);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_VCOM_CTL_1);
+  ili9341WriteByte(lcdp, 0x45);
+  ili9341WriteByte(lcdp, 0x15);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_VCOM_CTL_2);
+  ili9341WriteByte(lcdp, 0x90);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_MEM_ACS_CTL);
+  ili9341WriteByte(lcdp, 0xC8);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_RGB_IF_SIG_CTL);
+  ili9341WriteByte(lcdp, 0xC2);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_FUNCTION_CTL);
+  ili9341WriteByte(lcdp, 0x0A);
+  ili9341WriteByte(lcdp, 0xA7);
+  ili9341WriteByte(lcdp, 0x27);
+  ili9341WriteByte(lcdp, 0x04);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_COL_ADDR);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0xEF);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_PAGE_ADDR);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x01);
+  ili9341WriteByte(lcdp, 0x3F);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_IF_CTL);
+  ili9341WriteByte(lcdp, 0x01);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x06);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_GAMMA);
+  ili9341WriteByte(lcdp, 0x01);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_PGAMMA);
+  ili9341WriteChunk(lcdp, pgamma, 15);
+
+  ili9341WriteCommand(lcdp, ILI9341_SET_NGAMMA);
+  ili9341WriteChunk(lcdp, ngamma, 15);
+
+  ili9341WriteCommand(lcdp, ILI9341_CMD_SLEEP_OFF);
+  chThdSleepMilliseconds(10);
+
+  ili9341WriteCommand(lcdp, ILI9341_CMD_DISPLAY_ON);
+  ili9341WriteCommand(lcdp, ILI9341_SET_MEM);
+  chThdSleepMilliseconds(10);
+
+#else
+  ili9341WriteCommand(lcdp, 0xCA);
+  ili9341WriteByte(lcdp, 0xC3);
+  ili9341WriteByte(lcdp, 0x08);
+  ili9341WriteByte(lcdp, 0x50);
+
+  ili9341WriteCommand(lcdp, 0xCF);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0xC1);
+  ili9341WriteByte(lcdp, 0x30);
+
+  ili9341WriteCommand(lcdp, 0xED);
+  ili9341WriteByte(lcdp, 0x64);
+  ili9341WriteByte(lcdp, 0x03);
+  ili9341WriteByte(lcdp, 0x12);
+  ili9341WriteByte(lcdp, 0x81);
+
+  ili9341WriteCommand(lcdp, 0xE8);
+  ili9341WriteByte(lcdp, 0x85);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x78);
+
+  ili9341WriteCommand(lcdp, 0xCB);
+  ili9341WriteByte(lcdp, 0x39);
+  ili9341WriteByte(lcdp, 0x2C);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x34);
+  ili9341WriteByte(lcdp, 0x02);
+
+  ili9341WriteCommand(lcdp, 0xF7);
+  ili9341WriteByte(lcdp, 0x20);
+
+  ili9341WriteCommand(lcdp, 0xEA);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+
+  ili9341WriteCommand(lcdp, 0xB1);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x1B);
+
+  ili9341WriteCommand(lcdp, 0xB6);
+  ili9341WriteByte(lcdp, 0x0A);
+  ili9341WriteByte(lcdp, 0xA2);
+
+  ili9341WriteCommand(lcdp, 0xC0);
+  ili9341WriteByte(lcdp, 0x10);
+
+  ili9341WriteCommand(lcdp, 0xC1);
+  ili9341WriteByte(lcdp, 0x10);
+
+  ili9341WriteCommand(lcdp, 0xC5);
+  ili9341WriteByte(lcdp, 0x45);
+  ili9341WriteByte(lcdp, 0x15);
+
+  ili9341WriteCommand(lcdp, 0xC7);
+  ili9341WriteByte(lcdp, 0x90);
+
+  ili9341WriteCommand(lcdp, 0x36);
+  ili9341WriteByte(lcdp, 0xC8);
+
+  ili9341WriteCommand(lcdp, 0xF2);
+  ili9341WriteByte(lcdp, 0x00);
+
+  ili9341WriteCommand(lcdp, 0xB0);
+  ili9341WriteByte(lcdp, 0xC2);
+
+  ili9341WriteCommand(lcdp, 0xB6);
+  ili9341WriteByte(lcdp, 0x0A);
+  ili9341WriteByte(lcdp, 0xA7);
+  ili9341WriteByte(lcdp, 0x27);
+  ili9341WriteByte(lcdp, 0x04);
+
+  ili9341WriteCommand(lcdp, 0x2A);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0xEF);
+
+  ili9341WriteCommand(lcdp, 0x2B);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x01);
+  ili9341WriteByte(lcdp, 0x3F);
+
+  ili9341WriteCommand(lcdp, 0xF6);
+  ili9341WriteByte(lcdp, 0x01);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x06);
+
+  ili9341WriteCommand(lcdp, 0x2C);
+  delay(200);
+
+  ili9341WriteCommand(lcdp, 0x26);
+  ili9341WriteByte(lcdp, 0x01);
+
+  ili9341WriteCommand(lcdp, 0xE0);
+  ili9341WriteByte(lcdp, 0x0F);
+  ili9341WriteByte(lcdp, 0x29);
+  ili9341WriteByte(lcdp, 0x24);
+  ili9341WriteByte(lcdp, 0x0C);
+  ili9341WriteByte(lcdp, 0x0E);
+  ili9341WriteByte(lcdp, 0x09);
+  ili9341WriteByte(lcdp, 0x4E);
+  ili9341WriteByte(lcdp, 0x78);
+  ili9341WriteByte(lcdp, 0x3C);
+  ili9341WriteByte(lcdp, 0x09);
+  ili9341WriteByte(lcdp, 0x13);
+  ili9341WriteByte(lcdp, 0x05);
+  ili9341WriteByte(lcdp, 0x17);
+  ili9341WriteByte(lcdp, 0x11);
+  ili9341WriteByte(lcdp, 0x00);
+
+  ili9341WriteCommand(lcdp, 0xE1);
+  ili9341WriteByte(lcdp, 0x00);
+  ili9341WriteByte(lcdp, 0x16);
+  ili9341WriteByte(lcdp, 0x1B);
+  ili9341WriteByte(lcdp, 0x04);
+  ili9341WriteByte(lcdp, 0x11);
+  ili9341WriteByte(lcdp, 0x07);
+  ili9341WriteByte(lcdp, 0x31);
+  ili9341WriteByte(lcdp, 0x33);
+  ili9341WriteByte(lcdp, 0x42);
+  ili9341WriteByte(lcdp, 0x05);
+  ili9341WriteByte(lcdp, 0x0C);
+  ili9341WriteByte(lcdp, 0x0A);
+  ili9341WriteByte(lcdp, 0x28);
+  ili9341WriteByte(lcdp, 0x2F);
+  ili9341WriteByte(lcdp, 0x0F);
+
+  ili9341WriteCommand(lcdp, 0x11);
+  delay(200);
+  ili9341WriteCommand(lcdp, 0x29);
+  ili9341WriteCommand(lcdp, 0x2C);
+#endif
+  ili9341Unselect(lcdp);
 }
 
 /*===========================================================================*/
@@ -427,18 +737,25 @@ int main(void) {
   usbConnectBus(serusbcfg.usbp);
 
   /*
+   * Activates the LCD-related drivers.
+   */
+  spiStart(&SPID5, &spi_cfg5);
+  ili9341Start(&ILI9341D1, &ili9341_cfg);
+  initialize_lcd();
+  ltdcStart(&LTDCD1, &ltdc_cfg);
+
+  /*
    * Creating the blinker threads.
    */
-  chThdCreateStatic(waThread1, sizeof(waThread1),
-                    NORMALPRIO + 10, Thread1, NULL);
-  chThdCreateStatic(waThread2, sizeof(waThread2),
-                    NORMALPRIO + 10, Thread2, NULL);
+  chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO + 10,
+                    Thread1, NULL);
+  chThdCreateStatic(waThread2, sizeof(waThread2), NORMALPRIO + 10,
+                    Thread2, NULL);
 
   /*
    * Initialise SDRAM, board.h has already configured GPIO correctly (except that ST example uses 50MHz not 100MHz?)
    */
   SDRAM_Init();
-
 
   /*
    * Normal main() thread activity, in this demo it just performs

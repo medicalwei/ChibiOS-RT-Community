@@ -829,10 +829,10 @@
  * PF4  - FMC_A4                    (alternate 12).
  * PF5  - FMC_A5                    (alternate 12).
  * PF6  - PIN6                      (input pullup).
- * PF7  - LCD_DCX                   (output pushpull maximum).
+ * PF7  - LCD_DCX                   (alternate 5). //(output pushpull maximum).
  * PF8  - SPI5_MISO                 (alternate 5).
  * PF9  - SPI5_MOSI                 (alternate 5).
- * PF10 - LCD_DE                    (output pushpull maximum).
+ * PF10 - LCD_DE                    (alternate 14).
  * PF11 - FMC_SDNRAS                (alternate 12).
  * PF12 - FMC_A6                    (alternate 12).
  * PF13 - FMC_A7                    (alternate 12).
@@ -846,10 +846,10 @@
                                      PIN_MODE_ALTERNATE(GPIOF_FMC_A4) |     \
                                      PIN_MODE_ALTERNATE(GPIOF_FMC_A5) |     \
                                      PIN_MODE_INPUT(GPIOF_PIN6) |           \
-                                     PIN_MODE_OUTPUT(GPIOF_LCD_DCX) |       \
+                                     PIN_MODE_ALTERNATE(GPIOF_LCD_DCX) |       \
                                      PIN_MODE_ALTERNATE(GPIOF_SPI5_MISO) |  \
                                      PIN_MODE_ALTERNATE(GPIOF_SPI5_MOSI) |  \
-                                     PIN_MODE_OUTPUT(GPIOF_LCD_DE) |        \
+                                     PIN_MODE_ALTERNATE(GPIOF_LCD_DE) |     \
                                      PIN_MODE_ALTERNATE(GPIOF_FMC_SDNRAS) | \
                                      PIN_MODE_ALTERNATE(GPIOF_FMC_A6) |     \
                                      PIN_MODE_ALTERNATE(GPIOF_FMC_A7) |     \
@@ -926,10 +926,10 @@
                                      PIN_AFIO_AF(GPIOF_FMC_A4, 12) |        \
                                      PIN_AFIO_AF(GPIOF_FMC_A5, 12) |        \
                                      PIN_AFIO_AF(GPIOF_PIN6, 0) |           \
-                                     PIN_AFIO_AF(GPIOF_LCD_DCX, 0))
+                                     PIN_AFIO_AF(GPIOF_LCD_DCX, 5))
 #define VAL_GPIOF_AFRH              (PIN_AFIO_AF(GPIOF_SPI5_MISO, 5) |      \
                                      PIN_AFIO_AF(GPIOF_SPI5_MOSI, 5) |      \
-                                     PIN_AFIO_AF(GPIOF_LCD_DE, 0) |         \
+                                     PIN_AFIO_AF(GPIOF_LCD_DE, 14) |        \
                                      PIN_AFIO_AF(GPIOF_FMC_SDNRAS, 12) |    \
                                      PIN_AFIO_AF(GPIOF_FMC_A6, 12) |        \
                                      PIN_AFIO_AF(GPIOF_FMC_A7, 12) |        \

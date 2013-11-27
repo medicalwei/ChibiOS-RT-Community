@@ -21,6 +21,11 @@
 #include "ch.h"
 #include "hal.h"
 
+#include "stm32_ltdc.h"
+#include "ili9341.h"
+
+extern ILI9341Driver ILI9341D1;
+
 #if HAL_USE_PAL || defined(__DOXYGEN__)
 /**
  * @brief   PAL setup.
@@ -109,4 +114,11 @@ bool_t mmc_lld_is_write_protected(MMCDriver *mmcp) {
  * @todo    Add your board-specific code, if any.
  */
 void boardInit(void) {
+
+#if STM32_LTDC_USE_LTDC
+  ltdcInit();
+#endif
+
+  ili9341ObjectInit(&ILI9341D1);
+  ili9341Init(&ILI9341D1);
 }
