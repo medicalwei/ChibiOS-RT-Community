@@ -737,7 +737,7 @@ extern "C" {
 #if LTDC_USE_SOFTWARE_CONVERSIONS || defined(__DOXYGEN__)
   ltdc_color_t ltdcFromARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt);
   ltdc_color_t ltdcToARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt);
-#endif /* LTDC_NEED_CONVERSIONS */
+#endif /* LTDC_USE_SOFTWARE_CONVERSIONS */
 
 #ifdef __cplusplus
 }
