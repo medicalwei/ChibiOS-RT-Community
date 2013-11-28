@@ -257,7 +257,7 @@ void ltdcObjectInit(LTDCDriver *ltdcp) {
   ltdcp->active_window = ltdc_invalid_window;
 #if LTDC_USE_WAIT
   ltdcp->thread = NULL;
-#endif /* SPI_USE_WAIT */
+#endif /* LTDC_USE_WAIT */
 #if LTDC_USE_MUTUAL_EXCLUSION
 #if CH_USE_MUTEXES
   chMtxInit(&ltdcp->lock);
@@ -510,7 +510,11 @@ void ltdcAcquireBusS(LTDCDriver *ltdcp) {
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcAcquireBusS");
 
+#if CH_USE_MUTEXES
   chMtxLockS(&ltdcp->lock);
+#else
+  chSemWaitS(&ltdcp->lock);
+#endif
 }
 
 /**
@@ -542,14 +546,21 @@ void ltdcAcquireBus(LTDCDriver *ltdcp) {
  */
 void ltdcReleaseBusS(LTDCDriver *ltdcp) {
 
+#if CH_USE_MUTEXES
   const Mutex *releasedp;
+#endif
 
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcReleaseBusS");
-  (void)releasedp;
 
+#if CH_USE_MUTEXES
+  (void)releasedp;
   releasedp = chMtxUnlockS();
-  chDbgCheck(&ltdcp->lock == releasedp, "ltdcReleaseBusS");
+  chDbgAssert(&ltdcp->lock == releasedp,
+              "ltdcReleaseBusS(), #1", "invalid state");
+#else
+  chSemSignalI(&ltdcp->lock);
+#endif
 }
 
 /**
@@ -3880,9 +3891,9 @@ ltdc_color_t ltdcToARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt) {
   }
 }
 
-/** @} */
-
 #endif /* LTDC_USE_SOFTWARE_CONVERSIONS */
+
+/** @} */
 
 /** @} */
 
