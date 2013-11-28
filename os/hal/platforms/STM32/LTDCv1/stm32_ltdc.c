@@ -509,8 +509,6 @@ void ltdcAcquireBusS(LTDCDriver *ltdcp) {
 
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcAcquireBusS");
-  chDbgAssert(ltdcp->state != LTDC_READY,
-              "ltdcAcquireBusS(), #1", "not ready");
 
   chMtxLockS(&ltdcp->lock);
 }
@@ -548,8 +546,6 @@ void ltdcReleaseBusS(LTDCDriver *ltdcp) {
 
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcReleaseBusS");
-  chDbgAssert(ltdcp->state != LTDC_READY,
-              "ltdcReleaseBusS(), #1", "not ready");
   (void)releasedp;
 
   releasedp = chMtxUnlockS();
@@ -3764,7 +3760,7 @@ size_t ltdcBitsPerPixel(ltdc_pixfmt_t fmt) {
   return (size_t)ltdc_bpp[(unsigned)fmt];
 }
 
-#if LTDC_NEED_CONVERSIONS || defined(__DOXYGEN__)
+#if LTDC_USE_SOFTWARE_CONVERSIONS || defined(__DOXYGEN__)
 
 /**
  * @brief   Convert from ARGB-8888.
@@ -3886,7 +3882,7 @@ ltdc_color_t ltdcToARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt) {
 
 /** @} */
 
-#endif /* LTDC_NEED_CONVERSIONS */
+#endif /* LTDC_USE_SOFTWARE_CONVERSIONS */
 
 /** @} */
 

@@ -252,15 +252,15 @@
  * @note    Disabling this option saves both code and data space.
  */
 #if !defined(LTDC_USE_MUTUAL_EXCLUSION) || defined(__DOXYGEN__)
-#define LTDC_USE_MUTUAL_EXCLUSION           TRUE// FIXME
+#define LTDC_USE_MUTUAL_EXCLUSION           TRUE
 #endif
 
 /**
  * @brief   Provides software color conversion functions.
  * @note    Disabling this option saves both code and data space.
  */
-#if !defined(LTDC_NEED_CONVERSIONS) || defined(__DOXYGEN__)
-#define LTDC_NEED_CONVERSIONS               TRUE//FIXME
+#if !defined(LTDC_USE_SOFTWARE_CONVERSIONS) || defined(__DOXYGEN__)
+#define LTDC_USE_SOFTWARE_CONVERSIONS       TRUE
 #endif
 
 /** @} */
@@ -734,7 +734,7 @@ extern "C" {
 
   /* Helper functions.*/
   size_t ltdcBitsPerPixel(ltdc_pixfmt_t fmt);
-#if LTDC_USE_CONVERSIONS || defined(__DOXYGEN__)
+#if LTDC_USE_SOFTWARE_CONVERSIONS || defined(__DOXYGEN__)
   ltdc_color_t ltdcFromARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt);
   ltdc_color_t ltdcToARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt);
 #endif /* LTDC_NEED_CONVERSIONS */
