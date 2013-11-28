@@ -39,6 +39,10 @@
 /* Driver local definitions.                                                 */
 /*===========================================================================*/
 
+#if !defined(LTDC_LxBFCR_BF) && !defined(__DOXYGEN__)
+#define LTDC_LxBFCR_BF  (LTDC_LxBFCR_BF1 | LTDC_LxBFCR_BF2)
+#endif
+
 /*===========================================================================*/
 /* Driver exported variables.                                                */
 /*===========================================================================*/
@@ -86,25 +90,52 @@ static const ltdc_window_t ltdc_invalid_window = {
   1
 };
 
+/**
+ * @brief   Default layer specifications.
+ */
+static const ltdc_laycfg_t ltdc_default_laycfg = {
+  &ltdc_invalid_frame,
+  &ltdc_invalid_window,
+  LTDC_COLOR_BLACK,
+  0x00,
+  LTDC_COLOR_BLACK,
+  NULL,
+  0,
+  LTDC_BLEND_FIX1_FIX2,
+  0
+};
+
 /*===========================================================================*/
 /* Driver local functions.                                                   */
 /*===========================================================================*/
 
-static LTDC_Layer_TypeDef *get_layer(ltdc_layerid_t layer) {
+/**
+ * @brief   Forces LTDC register reload.
+ * @details Blocking function.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @sclass
+ * @notapi
+ */
+static void ltdc_force_reload_s(LTDCDriver *ltdcp) {
 
-  chDbgAssert(layer == LTDC_L1 || layer == LTDC_L2,
-              "get_layer(), #1", "outside range");
+  chDbgCheckClassS();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdc_force_reload_s");
 
-#ifdef STM32F429_439xx
-  return (LTDC_Layer_TypeDef *)(((uint32_t)layer << 7) + LTDC_Layer1_BASE);
-#else
-  return (layer == LTDC_L1) ? LTDC_Layer1 : LTDC_Layer2;
-#endif
+  LTDC->SRCR |= LTDC_SRCR_IMR;
+  while (LTDC->SRCR & (LTDC_SRCR_IMR | LTDC_SRCR_VBR))
+    ;
 }
 
 /*===========================================================================*/
 /* Driver exported functions.                                                */
 /*===========================================================================*/
+
+/**
+ * @name    LTDC interrupt handlers
+ * @{
+ */
 
 /**
  * @brief   LTDC event interrupt handler.
@@ -118,19 +149,35 @@ CH_IRQ_HANDLER(LTDC_EV_IRQHandler) {
   CH_IRQ_PROLOGUE();
 
   /* Handle Line Interrupt ISR.*/
-  if ((LTDC->ISR & LTDC_ISR_LIF) &&
-      (LTDC->IER & LTDC_IER_LIE)) {
-    chDbgAssert(ltdcp->config->line_isrcb != NULL,
+  if ((LTDC->ISR & LTDC_ISR_LIF) && (LTDC->IER & LTDC_IER_LIE)) {
+    chDbgAssert(ltdcp->config->line_isr != NULL,
                 "LTDC_EV_IRQHandler(), #1", "invalid state");
-    ltdcp->config->line_isrcb(ltdcp);
+    ltdcp->config->line_isr(ltdcp);
+    LTDC->ICR |= LTDC_ICR_CLIF;
   }
 
   /* Handle Register Reload ISR.*/
-  if ((LTDC->ISR & LTDC_ISR_RRIF) &&
-      (LTDC->IER & LTDC_IER_RRIE)) {
-    chDbgAssert(ltdcp->config->rr_isrcb != NULL,
+  if ((LTDC->ISR & LTDC_ISR_RRIF) && (LTDC->IER & LTDC_IER_RRIE)) {
+    chDbgAssert(ltdcp->config->rr_isr != NULL,
                 "LTDC_EV_IRQHandler(), #2", "invalid state");
-    ltdcp->config->rr_isrcb(ltdcp);
+    ltdcp->config->rr_isr(ltdcp);
+
+    chSysLockFromIsr();
+    chDbgAssert(ltdcp->state == LTDC_ACTIVE,
+                "LTDC_EV_IRQHandler(), #3", "invalid state");
+#if LTDC_USE_WAIT
+    /* Wake the waiting thread up.*/
+    if (ltdcp->thread != NULL) {
+      Thread *tp = ltdcp->thread;
+      ltdcp->thread = NULL;
+      tp->p_u.rdymsg = RDY_OK;
+      chSchReadyI(tp);
+    }
+#endif /* LTDC_USE_WAIT */
+    ltdcp->state = LTDC_READY;
+    chSysUnlockFromIsr();
+
+    LTDC->ICR |= LTDC_ICR_CRRIF;
   }
 
   CH_IRQ_EPILOGUE();
@@ -148,23 +195,30 @@ CH_IRQ_HANDLER(LTDC_ER_IRQHandler) {
   CH_IRQ_PROLOGUE();
 
   /* Handle FIFO Underrun ISR.*/
-  if ((LTDC->ISR & LTDC_ISR_FUIF) &&
-      (LTDC->IER & LTDC_IER_FUIE)) {
-    chDbgAssert(ltdcp->config->fuerr_isrcb != NULL,
+  if ((LTDC->ISR & LTDC_ISR_FUIF) && (LTDC->IER & LTDC_IER_FUIE)) {
+    chDbgAssert(ltdcp->config->fuerr_isr != NULL,
                 "LTDC_ER_IRQHandler(), #1", "invalid state");
-    ltdcp->config->fuerr_isrcb(ltdcp);
+    ltdcp->config->fuerr_isr(ltdcp);
+    LTDC->ICR |= LTDC_ICR_CFUIF;
   }
 
   /* Handle Transfer Error ISR.*/
-  if ((LTDC->ISR & LTDC_ISR_TERRIF) &&
-      (LTDC->IER & LTDC_IER_TERRIE)) {
-    chDbgAssert(ltdcp->config->terr_isrcb != NULL,
+  if ((LTDC->ISR & LTDC_ISR_TERRIF) && (LTDC->IER & LTDC_IER_TERRIE)) {
+    chDbgAssert(ltdcp->config->terr_isr != NULL,
                 "LTDC_ER_IRQHandler(), #2", "invalid state");
-    ltdcp->config->terr_isrcb(ltdcp);
+    ltdcp->config->terr_isr(ltdcp);
+    LTDC->ICR |= LTDC_ICR_CTERRIF;
   }
 
   CH_IRQ_EPILOGUE();
 }
+
+/** @} */
+
+/**
+ * @name    LTDC driver-specific methods
+ * @{
+ */
 
 /**
  * @brief   LTDC Driver initialization.
@@ -173,10 +227,9 @@ CH_IRQ_HANDLER(LTDC_ER_IRQHandler) {
  *
  * @init
  */
-void ltdcInit() {
+void ltdcInit(void) {
 
   /* Reset the LTDC hardware module.*/
-  rccDisableLTDC(FALSE);
   rccResetLTDC();
 
   /* Enable the LTDC clock.*/
@@ -197,11 +250,21 @@ void ltdcInit() {
  */
 void ltdcObjectInit(LTDCDriver *ltdcp) {
 
-  chDbgCheck(ltdcp != NULL, "ltdcObjectInit");
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcObjectInit");
 
   ltdcp->state = LTDC_UNINIT;
   ltdcp->config = NULL;
   ltdcp->active_window = ltdc_invalid_window;
+#if LTDC_USE_WAIT
+  ltdcp->thread = NULL;
+#endif /* SPI_USE_WAIT */
+#if LTDC_USE_MUTUAL_EXCLUSION
+#if CH_USE_MUTEXES
+  chMtxInit(&ltdcp->lock);
+#else
+  chSemInit(&ltdcp->lock, 1);
+#endif
+#endif /* LTDC_USE_MUTUAL_EXCLUSION */
 }
 
 /**
@@ -215,8 +278,8 @@ void ltdcObjectInit(LTDCDriver *ltdcp) {
  */
 ltdc_state_t ltdcGetStateI(LTDCDriver *ltdcp) {
 
-  chDbgCheck(ltdcp != NULL, "ltdcGetStateI");
   chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcGetStateI");
 
   return ltdcp->state;
 }
@@ -250,11 +313,10 @@ ltdc_state_t ltdcGetState(LTDCDriver *ltdcp) {
 void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
 
   uint32_t hacc, vacc, flags;
-  ltdc_layerid_t l;
 
   chSysLock();
 
-  chDbgCheck(ltdcp != NULL, "ltdcStart");
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcStart");
   chDbgCheck(configp != NULL, "ltdcStart");
   chDbgAssert(ltdcp->state == LTDC_STOP, "ltdcStart(), #1", "invalid state");
 
@@ -263,7 +325,7 @@ void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
   /* Turn off the controller and its interrupts.*/
   LTDC->GCR = 0;
   LTDC->IER = 0;
-  ltdcReloadAndWaitI(ltdcp, TRUE);
+  ltdc_force_reload_s(ltdcp);
 
   /* Set synchronization params.*/
   chDbgAssert(configp->hsync_width >= LTDC_MIN_HSYNC_WIDTH,
@@ -366,38 +428,11 @@ void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
   ltdcSetEnableFlagsI(ltdcp, configp->flags & ~LTDC_EF_ENABLE);
 
   /* Color settings.*/
-  ltdcSetBackgroundColorI(ltdcp, configp->bg_color);
+  ltdcSetClearColorI(ltdcp, configp->clear_color);
 
   /* Load layer configurations.*/
-  for (l = LTDC_L1; l <= LTDC_L2; ++l) {
-    const ltdc_laycfg_t *const lcfgp = configp->laycfgs[l];
-    if (lcfgp != NULL) {
-      ltdcLayerSetEnableFlagsI(ltdcp, l, lcfgp->flags & ~LTDC_LEF_ENABLE);
-      ltdcLayerSetFrameI(ltdcp, l, lcfgp->frame);
-      ltdcLayerSetWindowI(ltdcp, l, lcfgp->window);
-      ltdcLayerSetDefaultColorI(ltdcp, l, lcfgp->def_color);
-      ltdcLayerSetKeyingColorI(ltdcp, l, lcfgp->key_color);
-      ltdcLayerSetConstantAlphaI(ltdcp, l, lcfgp->const_alpha);
-      ltdcLayerSetBlendingFactorsI(ltdcp, l, lcfgp->blending);
-
-      if (lcfgp->pal_length > 0)
-        ltdcLayerSetPaletteI(ltdcp, l, lcfgp->pal_colors, lcfgp->pal_length);
-      else { /* Default grayscale palette.*/
-        unsigned i;
-        for (i = 0; i < 256; ++i)
-          ltdcLayerSetPaletteColorI(ltdcp, l, (uint8_t)i,
-                                    ltdcMakeARGB8888(0xFF, i, i, i));
-      }
-    } else {
-      ltdcLayerSetEnableFlagsI(ltdcp, l, 0);
-      ltdcLayerSetFrameI(ltdcp, l, &ltdc_invalid_frame);
-      ltdcLayerSetWindowI(ltdcp, l, &ltdc_invalid_window);
-      ltdcLayerSetDefaultColorI(ltdcp, l, LTDC_COLOR_BLACK);
-      ltdcLayerSetKeyingColorI(ltdcp, l, LTDC_COLOR_BLACK);
-      ltdcLayerSetConstantAlphaI(ltdcp, l, 0x00);
-      ltdcLayerSetBlendingFactorsI(ltdcp, l, LTDC_BLEND_FIX1_FIX2);
-    }
-  }
+  ltdcBgSetLayerI(ltdcp, configp->bg_laycfg);
+  ltdcFgSetLayerI(ltdcp, configp->fg_laycfg);
 
   /* Enable only the assigned interrupt service routines.*/
   nvicEnableVector(STM32_LTDC_EV_NUMBER,
@@ -406,25 +441,22 @@ void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
                    CORTEX_PRIORITY_MASK(STM32_LTDC_ER_IRQ_PRIORITY));
 
   flags = 0;
-  if (configp->line_isrcb != NULL)
+  if (configp->line_isr != NULL)
     flags |= LTDC_IER_LIE;
-  if (configp->rr_isrcb != NULL)
+  if (configp->rr_isr != NULL)
     flags |= LTDC_IER_RRIE;
-  if (configp->fuerr_isrcb != NULL)
+  if (configp->fuerr_isr != NULL)
     flags |= LTDC_IER_FUIE;
-  if (configp->terr_isrcb != NULL)
+  if (configp->terr_isr != NULL)
     flags |= LTDC_IER_TERRIE;
   LTDC->IER = flags;
 
   /* Apply settings.*/
-  ltdcReloadAndWaitI(ltdcp, TRUE);
+  ltdc_force_reload_s(ltdcp);
 
   /* Turn on the controller.*/
-  for (l = LTDC_L1; l <= LTDC_L2; ++l)
-    if (configp->laycfgs[l]->flags & LTDC_LEF_ENABLE)
-      ltdcLayerEnableI(ltdcp, l);
   LTDC->GCR |= LTDC_GCR_LTDCEN;
-  ltdcReloadAndWaitI(ltdcp, TRUE);
+  ltdc_force_reload_s(ltdcp);
 
   ltdcp->state = LTDC_READY;
   chSysUnlock();
@@ -439,19 +471,115 @@ void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
  */
 void ltdcStop(LTDCDriver *ltdcp) {
 
-  chDbgCheck(ltdcp != NULL, "ltdcStop");
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcStop");
 
   chSysLock();
-  chDbgAssert(ltdcp->state == LTDC_READY, "ltdcStop(), #1", "invalid state");
+  chDbgAssert(ltdcp->state == LTDC_READY,
+              "ltdcStop(), #1", "invalid state");
 
   /* Turn off the controller and its interrupts.*/
   LTDC->GCR &= ~LTDC_GCR_LTDCEN;
   LTDC->IER = 0;
-  ltdcReloadAndWait(ltdcp, TRUE);
+#if LTDC_USE_WAIT
+  ltdcReloadS(ltdcp, TRUE);
+#else
+  ltdcStartReloadI(ltdcp);
+  while (ltdcIsReloadingI(ltdcp))
+    ;
+#endif /* LTDC_USE_WAIT */
 
   ltdcp->state = LTDC_STOP;
   chSysUnlock();
 }
+
+#if LTDC_USE_MUTUAL_EXCLUSION
+
+/**
+ * @brief   Gains exclusive access to the LTDC module.
+ * @details This function tries to gain ownership to the LTDC module, if the
+ *          module is already being used then the invoking thread is queued.
+ * @pre     In order to use this function the option
+ *          @p LTDC_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @sclass
+ */
+void ltdcAcquireBusS(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassS();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcAcquireBusS");
+  chDbgAssert(ltdcp->state != LTDC_READY,
+              "ltdcAcquireBusS(), #1", "not ready");
+
+  chMtxLockS(&ltdcp->lock);
+}
+
+/**
+ * @brief   Gains exclusive access to the LTDC module.
+ * @details This function tries to gain ownership to the LTDC module, if the
+ *          module is already being used then the invoking thread is queued.
+ * @pre     In order to use this function the option
+ *          @p LTDC_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcAcquireBus(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcAcquireBusS(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Releases exclusive access to the LTDC module.
+ * @pre     In order to use this function the option
+ *          @p LTDC_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @sclass
+ */
+void ltdcReleaseBusS(LTDCDriver *ltdcp) {
+
+  const Mutex *releasedp;
+
+  chDbgCheckClassS();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcReleaseBusS");
+  chDbgAssert(ltdcp->state != LTDC_READY,
+              "ltdcReleaseBusS(), #1", "not ready");
+  (void)releasedp;
+
+  releasedp = chMtxUnlockS();
+  chDbgCheck(&ltdcp->lock == releasedp, "ltdcReleaseBusS");
+}
+
+/**
+ * @brief   Releases exclusive access to the LTDC module.
+ * @pre     In order to use this function the option
+ *          @p LTDC_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcReleaseBus(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcReleaseBusS(ltdcp);
+  chSysUnlock();
+}
+
+#endif /* LTDC_USE_MUTUAL_EXCLUSION */
+
+/** @} */
+
+/**
+ * @name    LTDC global methods
+ * @{
+ */
 
 /**
  * @brief   Get enabled flags.
@@ -465,975 +593,11 @@ void ltdcStop(LTDCDriver *ltdcp) {
  */
 ltdc_flags_t ltdcGetEnableFlagsI(LTDCDriver *ltdcp) {
 
-  chDbgCheck(ltdcp != NULL, "ltdcGetEnableFlagsI");
   chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcGetEnableFlagsI");
   (void)ltdcp;
 
   return LTDC->GCR & LTDC_EF_MASK;
-}
-
-/**
- * @brief   Set enabled flags.
- * @details Sets all the flags of the <tt>LTDC_EF_*</tt> group at once.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] flags     enabled flags
- *
- * @iclass
- */
-void ltdcSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcSetEnableFlagsI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  LTDC->GCR = flags & LTDC_EF_MASK;
-}
-
-/**
- * @brief   Reloading shadow registers.
- * @details Tells whether the LTDC is reloading shadow registers.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @return  reloading
- *
- * @iclass
- */
-bool_t ltdcIsReloadingI(LTDCDriver *ltdcp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcIsReloadingI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (LTDC->SRCR & (LTDC_SRCR_IMR | LTDC_SRCR_VBR)) != 0;
-}
-
-/**
- * @brief   Reload shadow registers.
- * @details Reloads LTDC shadow registers, upon vsync or immediately.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] immediate reload immediately, not upon vsync
- *
- * @iclass
- */
-void ltdcReloadI(LTDCDriver *ltdcp, bool_t immediate) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcReloadI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  if (immediate)
-    LTDC->SRCR |= LTDC_SRCR_IMR;
-  else
-    LTDC->SRCR |= LTDC_SRCR_VBR;
-}
-
-/**
- * @brief   Wait shadow registers reloading.
- * @details Waits while reloading LTDC shadow registers.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @iclass
- */
-void ltdcWaitReloadI(LTDCDriver *ltdcp) {
-
-  while (ltdcIsReloadingI(ltdcp))
-    ;
-}
-
-/**
- * @brief   Dithering enabled.
- * @details Tells whether the dithering is enabled.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @return              enabled
- *
- * @api
- */
-bool_t ltdcIsDitheringEnabledI(LTDCDriver *ltdcp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcIsDitheringEnabledI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (LTDC->GCR & LTDC_GCR_DTEN) != 0;
-}
-
-/**
- * @brief   Enable dithering.
- * @details Enables dithering capabilities for pixel formats with less than
- *          8 bits per channel.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @api
- */
-void ltdcEnableDitheringI(LTDCDriver *ltdcp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcEnableDitheringI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  LTDC->GCR |= LTDC_GCR_DTEN;
-}
-
-/**
- * @brief   Disable dithering.
- * @details Disables dithering capabilities for pixel formats with less than
- *          8 bits per channel.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @api
- */
-void ltdcDisableDitheringI(LTDCDriver *ltdcp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcDisableDitheringI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  LTDC->GCR &= ~LTDC_GCR_DTEN;
-}
-
-/**
- * @brief   Get background color.
- * @details Gets the background color.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @return              background color, RGB-888
- *
- * @iclass
- */
-ltdc_color_t ltdcGetBackgroundColorI(LTDCDriver *ltdcp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcGetBackgroundColorI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (ltdc_color_t)(LTDC->BCCR & 0x00FFFFFF);
-}
-
-/**
- * @brief   Set background color.
- * @details Sets the background color.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] c         background color, RGB-888
- *
- * @iclass
- */
-void ltdcSetBackgroundColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcSetBackgroundColorI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  LTDC->BCCR = c & 0x00FFFFFF;
-}
-
-/**
- * @brief   Get line interrupt position.
- * @details Gets the line interrupt position.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @return              line interrupt position
- *
- * @iclass
- */
-uint16_t ltdcGetLineInterruptPosI(LTDCDriver *ltdcp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcGetLineInterruptPosI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (uint16_t)(LTDC->LIPCR & LTDC_LIPCR_LIPOS);
-}
-
-/**
- * @brief   Set line interrupt position.
- * @details Sets the line interrupt position.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] pos       line interrupt position
- *
- * @iclass
- */
-void ltdcSetLineInterruptPosI(LTDCDriver *ltdcp, uint16_t pos) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcSetLineInterruptPosI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  LTDC->LIPCR = (uint32_t)pos & LTDC_LIPCR_LIPOS;
-}
-
-/**
- * @brief   Get current position.
- * @details Gets the current position.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[out] xp       pointer to the output horizontal coordinate
- * @param[out] yp       pointer to the output vertical coordinate
- *
- * @iclass
- */
-void ltdcGetCurrentPosI(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcGetCurrentPosI");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  const uint32_t r = LTDC->CPSR;
-  *xp = (uint16_t)((r & LTDC_CPSR_CXPOS) >> 16);
-  *yp = (uint16_t)((r & LTDC_CPSR_CYPOS) >>  0);
-}
-
-/**
- * @brief   Get layer enabled flags.
- * @details Returns all the flags of the <tt>LTDC_LEF_*</tt> group at once.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- *
- * @return              enabled flags
- *
- * @iclass
- */
-ltdc_flags_t ltdcLayerGetEnableFlagsI(LTDCDriver *ltdcp,
-                                      ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetEnableFlagsI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetEnableFlagsI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return get_layer(layer)->CR & LTDC_LEF_MASK;
-}
-
-/**
- * @brief   Set layer enabled flags.
- * @details Sets all the flags of the <tt>LTDC_LEF_*</tt> group at once.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] flags     enabled flags
- *
- * @iclass
- */
-void ltdcLayerSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              ltdc_flags_t flags) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetEnableFlagsI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetEnableFlagsI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR = flags & LTDC_LEF_MASK;
-}
-
-/**
- * @brief   Layer enabled.
- * @details Tells whether a layer is enabled.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              enabled
- *
- * @iclass
- */
-bool_t ltdcLayerIsEnabledI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerIsEnabledI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerIsEnabledI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (get_layer(layer)->CR & ~LTDC_LxCR_LEN) != 0;
-}
-
-/**
- * @brief   Layer enable.
- * @details Enables a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerEnableI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerEnableI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerEnableI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR |= LTDC_LxCR_LEN;
-}
-
-/**
- * @brief   Layer disable.
- * @details Disables a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerDisableI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerDisableI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerDisableI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR &= ~LTDC_LxCR_LEN;
-}
-
-/**
- * @brief   Layer palette enabled.
- * @details Tells whether a layer palette (color lookup table) is enabled.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              enabled
- *
- * @iclass
- */
-bool_t ltdcLayerIsPaletteEnabledI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerIsPaletteEnabledI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerIsPaletteEnabledI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (get_layer(layer)->CR & ~LTDC_LxCR_CLUTEN) != 0;
-}
-
-/**
- * @brief   Enable layer palette.
- * @details Enables the palette (color lookup table) of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerEnablePaletteI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerEnablePaletteI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerEnablePaletteI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR |= LTDC_LxCR_CLUTEN;
-}
-
-/**
- * @brief   Disable layer palette.
- * @details Disables the palette (color lookup table) of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerDisablePaletteI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerDisablePaletteI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerDisablePaletteI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR &= ~LTDC_LxCR_CLUTEN;
-}
-
-/**
- * @brief   Set palette color.
- * @details Sets the color of a palette (color lookup table) slot.
- * @note    Palette colors should be changed only at vsync, or while the LTDC
- *          is disabled.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] slot      palette slot
- * @param[in] c         color, RGB-888
- *
- * @iclass
- */
-void ltdcLayerSetPaletteColorI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               uint8_t slot, ltdc_color_t c) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetPaletteColorI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetPaletteColorI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CLUTWR = ((uint32_t)slot << 24) | (c & 0x00FFFFFF);
-}
-
-/**
- * @brief   Set layer palette.
- * @details Sets the entire palette color (color lookup table) slot.
- * @note    Palette colors should be changed only at vsync, or while the LTDC
- *          is disabled.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] colors    array of palette colors, RGB-888
- * @param[in] length    number of palette colors
- *
- * @iclass
- */
-void ltdcLayerSetPaletteI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                          const ltdc_color_t colors[], uint16_t length) {
-
-  LTDC_Layer_TypeDef *layerp;
-  uint16_t i;
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetPaletteI");
-  chDbgCheck((colors == NULL) == (length == 0), "ltdcLayerSetPaletteI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetPaletteI(), #1", "invalid layer");
-  chDbgAssert(length <= 256,
-              "ltdcLayerSetPaletteI(), #2", "outside range");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  layerp = get_layer(layer);
-  for (i = 0; i < length; ++i)
-    layerp->CLUTWR = ((uint32_t)i << 24) | (colors[i] & 0x00FFFFFF);
-}
-
-/**
- * @brief   Get layer pixel format.
- * @details Gets the pixel format of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              pixel format
- *
- * @iclass
- */
-ltdc_pixfmt_t ltdcLayerGetPixelFormatI(LTDCDriver *ltdcp,
-                                       ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetPixelFormatI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetPixelFormatI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (ltdc_pixfmt_t)(get_layer(layer)->PFCR & LTDC_LxPFCR_PF);
-}
-
-/**
- * @brief   Set layer pixel format.
- * @details Sets the pixel format of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] fmt       pixel format
- *
- * @iclass
- */
-void ltdcLayerSetPixelFormatI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              ltdc_pixfmt_t fmt) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetPixelFormatI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetPixelFormatI(), #1", "invalid layer");
-  chDbgAssert(fmt >= LTDC_MIN_PIXFMT_ID,
-              "ltdcLayerSetPixelFormatI(), #2", "outside range");
-  chDbgAssert(fmt <= LTDC_MAX_PIXFMT_ID,
-              "ltdcLayerSetPixelFormatI(), #3", "outside range");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->PFCR = (uint32_t)fmt & LTDC_LxPFCR_PF;
-}
-
-/**
- * @brief   Layer color keying enabled.
- * @details Tells whether a layer has color keying enabled.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              enabled
- *
- * @iclass
- */
-bool_t ltdcLayerIsKeyingEnabledI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerIsKeyingEnabledI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerIsKeyingEnabledI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (get_layer(layer)->CR & ~LTDC_LxCR_COLKEN) != 0;
-}
-
-/**
- * @brief   Enable layer color keying.
- * @details Enables color keying capabilities of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerEnableKeyingI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerEnableKeyingI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerEnableKeyingI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR |= LTDC_LxCR_COLKEN;
-}
-
-/**
- * @brief   Disable layer color keying.
- * @details Disables color keying capabilities of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerDisableKeyingI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerDisableKeyingI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerDisableKeyingI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CR &= ~LTDC_LxCR_COLKEN;
-}
-
-/**
- * @brief   Get layer color key.
- * @details Gets the color key of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              color key, RGB-888
- *
- * @iclass
- */
-ltdc_color_t ltdcLayerGetKeyingColorI(LTDCDriver *ltdcp,
-                                      ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetKeyingColorI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetKeyingColorI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (ltdc_color_t)(get_layer(layer)->CKCR & 0x00FFFFFF);
-}
-
-/**
- * @brief   Set layer color key.
- * @details Sets the color key of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] c         color key, RGB-888
- *
- * @iclass
- */
-void ltdcLayerSetKeyingColorI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              ltdc_color_t c) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetKeyingColorI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetKeyingColorI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CKCR = (uint32_t)c & 0x00FFFFFF;
-}
-
-/**
- * @brief   Get layer constant alpha.
- * @details Gets the constant alpha component of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              constant alpha component, A-8
- *
- * @iclass
- */
-uint8_t ltdcLayerGetConstantAlphaI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetConstantAlphaI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetConstantAlphaI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (uint8_t)(get_layer(layer)->CACR & LTDC_LxCACR_CONSTA);
-}
-
-/**
- * @brief   Set layer constant alpha.
- * @details Sets the constant alpha component of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] a         constant alpha component, A-8
- *
- * @iclass
- */
-void ltdcLayerSetConstantAlphaI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                uint8_t a) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetConstantAlphaI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetConstantAlphaI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CACR = (uint32_t)a & LTDC_LxCACR_CONSTA;
-}
-
-/**
- * @brief   Get layer default color.
- * @details Gets the default color of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              default color, ARGB-8888
- *
- * @iclass
- */
-ltdc_color_t ltdcLayerGetDefaultColorI(LTDCDriver *ltdcp,
-                                       ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetDefaultColorI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetDefaultColorI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (ltdc_color_t)get_layer(layer)->DCCR;
-}
-
-/**
- * @brief   Set layer default color.
- * @details Sets the default color of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] c         default color, ARGB-8888
- *
- * @iclass
- */
-void ltdcLayerSetDefaultColorI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               ltdc_color_t c) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetDefaultColorI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetDefaultColorI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->DCCR = (uint32_t)c;
-}
-
-/**
- * @brief   Get layer blending factors.
- * @details Gets the blending factors of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              blending factors
- *
- * @iclass
- */
-ltdc_blendf_t ltdcLayerGetBlendingFactorsI(LTDCDriver *ltdcp,
-                                           ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetBlendingFactorsI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetBlendingFactorsI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (ltdc_blendf_t)(get_layer(layer)->BFCR &
-                         (LTDC_LxBFCR_BF1 | LTDC_LxBFCR_BF2));
-}
-
-/**
- * @brief   Set layer blending factors.
- * @details Sets the blending factors of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] factors   blending factors
- *
- * @iclass
- */
-void ltdcLayerSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                  ltdc_blendf_t bf) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcSetBlendingFactorsI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetBlendingFactorsI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->BFCR = (uint32_t)bf & (LTDC_LxBFCR_BF1 | LTDC_LxBFCR_BF2);
-}
-
-/**
- * @brief   Get layer window specs.
- * @details Gets the window specifications of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] winp     pointer to the output window specifications
- *
- * @iclass
- */
-void ltdcLayerGetWindowI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                         ltdc_window_t *winp) {
-
-  LTDC_Layer_TypeDef *layerp;
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetWindowI");
-  chDbgCheck(winp != NULL, "ltdcLayerGetWindowI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetWindowI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  layerp = get_layer(layer);
-  winp->hstart = (uint16_t)((layerp->WHPCR & LTDC_LxWHPCR_WHSTPOS) >>  0);
-  winp->hstop  = (uint16_t)((layerp->WHPCR & LTDC_LxWHPCR_WHSPPOS) >> 16);
-  winp->vstart = (uint16_t)((layerp->WVPCR & LTDC_LxWVPCR_WVSTPOS) >>  0);
-  winp->vstop  = (uint16_t)((layerp->WVPCR & LTDC_LxWVPCR_WVSPPOS) >> 16);
-}
-
-/**
- * @brief   Set layer window specs.
- * @details Sets the window specifications of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] winp     pointer to the window specifications
- *
- * @iclass
- */
-void ltdcLayerSetWindowI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                         const ltdc_window_t *winp) {
-
-  LTDC_Layer_TypeDef *layerp;
-  uint32_t start, stop;
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetWindowI");
-  chDbgCheck(winp != NULL, "ltdcLayerSetWindowI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetWindowI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  chDbgAssert(winp->hstop < ltdcp->config->screen_width,
-              "ltdcLayerSetWindowI(), #11", "outside range");
-  chDbgAssert(winp->vstop < ltdcp->config->screen_height,
-              "ltdcLayerSetWindowI(), #12", "outside range");
-
-  layerp = get_layer(layer);
-
-  /* Horizontal boundaries.*/
-  start = (uint32_t)winp->hstart + ltdcp->active_window.hstart;
-  stop  = (uint32_t)winp->hstop  + ltdcp->active_window.hstart;
-
-  chDbgAssert(start >= ltdcp->active_window.hstart,
-              "ltdcLayerSetWindowI(), #21", "outside range");
-  chDbgAssert(stop <= ltdcp->active_window.hstop,
-              "ltdcLayerSetWindowI(), #22", "outside range");
-
-  layerp->WHPCR = ((start <<  0) & LTDC_LxWHPCR_WHSTPOS) |
-                  ((stop  << 16) & LTDC_LxWHPCR_WHSPPOS);
-
-  /* Vertical boundaries.*/
-  start = (uint32_t)winp->vstart + ltdcp->active_window.vstart;
-  stop  = (uint32_t)winp->vstop  + ltdcp->active_window.vstart;
-
-  chDbgAssert(start >= ltdcp->active_window.vstart,
-              "ltdcLayerSetWindowI(), #31", "outside range");
-  chDbgAssert(stop <= ltdcp->active_window.vstop,
-              "ltdcLayerSetWindowI(), #32", "outside range");
-
-  layerp->WVPCR = ((start <<  0) & LTDC_LxWVPCR_WVSTPOS) |
-                  ((stop  << 16) & LTDC_LxWVPCR_WVSPPOS);
-}
-
-/**
- * @brief   Set layer window as invalid.
- * @details Sets the window specifications of a layer so that the window is
- *          pixel sized at the screen origin.
- * @note    Useful before reconfiguring the frame specifications of the layer,
- *          to avoid errors.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @iclass
- */
-void ltdcLayerSetInvalidWindowI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  (void)ltdcp;
-  ltdcLayerSetWindowI(ltdcp, layer, &ltdc_invalid_window);
-}
-
-/**
- * @brief   Get layer frame buffer specs.
- * @details Gets the frame buffer specifications of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] framep   pointer to the output frame buffer specifications
- *
- * @iclass
- */
-void ltdcLayerGetFrameI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                        ltdc_frame_t *framep) {
-
-  LTDC_Layer_TypeDef *layerp;
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetFrameI");
-  chDbgCheck(framep != NULL, "ltdcLayerGetFrameI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetFrameI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  layerp = get_layer(layer);
-  framep->bufferp = (void *)(layerp->CFBAR & LTDC_LxCFBAR_CFBADD);
-  framep->pitch   = (size_t)((layerp->CFBLR & LTDC_LxCFBLR_CFBP) >> 16);
-  framep->width   = (uint16_t)(((layerp->CFBLR & LTDC_LxCFBLR_CFBLL) - 3) /
-                    ltdcBytesPerPixel(ltdcLayerGetPixelFormatI(ltdcp, layer)));
-  framep->height  = (uint16_t)(layerp->CFBLNR & LTDC_LxCFBLNR_CFBLNBR);
-}
-
-/**
- * @brief   Set layer frame buffer specs.
- * @details Sets the frame buffer specifications of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] framep   pointer to the frame buffer specifications
- *
- * @iclass
- */
-void ltdcLayerSetFrameI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                        const ltdc_frame_t *framep) {
-
-  LTDC_Layer_TypeDef *layerp;
-  size_t linesize;
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetFrameI");
-  chDbgCheck(framep != NULL, "ltdcLayerSetFrameI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetFrameI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  ltdcLayerSetPixelFormatI(ltdcp, layer, framep->fmt);
-
-  layerp = get_layer(layer);
-  linesize = ltdcBytesPerPixel(framep->fmt) * framep->width;
-
-  chDbgAssert(framep->width  <= ltdcp->config->screen_width,
-              "ltdcLayerSetFrameI(), #11", "outside range");
-  chDbgAssert(framep->height <= ltdcp->config->screen_height,
-              "ltdcLayerSetFrameI(), #12", "outside range");
-  chDbgAssert(linesize >= LTDC_MIN_FRAME_WIDTH_BYTES,
-              "ltdcLayerSetFrameI(), #13", "outside range");
-  chDbgAssert(linesize <= LTDC_MAX_FRAME_WIDTH_BYTES,
-              "ltdcLayerSetFrameI(), #14", "outside range");
-  chDbgAssert(framep->height >= LTDC_MIN_FRAME_HEIGHT_LINES,
-              "ltdcLayerSetFrameI(), #15", "outside range");
-  chDbgAssert(framep->height <= LTDC_MAX_FRAME_HEIGHT_LINES,
-              "ltdcLayerSetFrameI(), #16", "outside range");
-  chDbgAssert(framep->pitch  >= linesize,
-              "ltdcLayerSetFrameI(), #17", "outside range");
-
-  layerp->CFBAR  = (uint32_t)framep->bufferp & LTDC_LxCFBAR_CFBADD;
-  layerp->CFBLR  = ((((uint32_t)framep->pitch << 16) & LTDC_LxCFBLR_CFBP) |
-                    ((linesize + 3) & LTDC_LxCFBLR_CFBLL));
-  layerp->CFBLNR = (uint32_t)framep->height & LTDC_LxCFBLNR_CFBLNBR;
-}
-
-/**
- * @brief   Get layer frame buffer address.
- * @details Gets the frame buffer address of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- *
- * @return              frame buffer address
- *
- * @iclass
- */
-void *ltdcLayerGetFrameAddressI(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerGetFrameAddressI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerGetFrameAddressI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  return (void *)(get_layer(layer)->CFBAR & LTDC_LxCFBAR_CFBADD);
-}
-
-/**
- * @brief   Set layer frame buffer address.
- * @details Sets the frame buffer address of a layer.
- *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[in] bufferp   frame buffer address
- *
- * @iclass
- */
-void ltdcLayerSetFrameAddressI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               void *bufferp) {
-
-  chDbgCheck(ltdcp != NULL, "ltdcLayerSetFrameAddressI");
-  chDbgCheck(bufferp != NULL, "ltdcLayerSetFrameAddressI");
-  chDbgAssert((layer & ~1) == 0,
-              "ltdcLayerSetFrameAddressI(), #1", "invalid layer");
-  chDbgCheckClassI();
-  (void)ltdcp;
-
-  get_layer(layer)->CFBAR = (uint32_t)bufferp & LTDC_LxCFBAR_CFBADD;
 }
 
 /**
@@ -1462,6 +626,24 @@ ltdc_flags_t ltdcGetEnableFlags(LTDCDriver *ltdcp) {
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] flags     enabled flags
  *
+ * @iclass
+ */
+void ltdcSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcSetEnableFlagsI");
+  (void)ltdcp;
+
+  LTDC->GCR = flags & LTDC_EF_MASK;
+}
+
+/**
+ * @brief   Set enabled flags.
+ * @details Sets all the flags of the <tt>LTDC_EF_*</tt> group at once.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] flags     enabled flags
+ *
  * @api
  */
 void ltdcSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags) {
@@ -1469,6 +651,25 @@ void ltdcSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags) {
   chSysLock();
   ltdcSetEnableFlagsI(ltdcp, flags);
   chSysUnlock();
+}
+
+/**
+ * @brief   Reloading shadow registers.
+ * @details Tells whether the LTDC is reloading shadow registers.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              reloading
+ *
+ * @iclass
+ */
+bool_t ltdcIsReloadingI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcIsReloadingI");
+  (void)ltdcp;
+
+  return (LTDC->SRCR & (LTDC_SRCR_IMR | LTDC_SRCR_VBR)) != 0;
 }
 
 /**
@@ -1492,32 +693,143 @@ bool_t ltdcIsReloading(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Reload shadow registers.
- * @details Reloads LTDC shadow registers, upon vsync or immediately.
+ * @details Starts reloading LTDC shadow registers, upon vsync or immediately.
+ * @post    At the end of the operation the configured callback is invoked.
  *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] immediate reload immediately, not upon vsync
+ * @param[in] ltdcp         pointer to the @p LTDCDriver object
+ * @param[in] immediately   reload immediately, not upon vsync
  *
- * @api
+ * @iclass
  */
-void ltdcReload(LTDCDriver *ltdcp, bool_t immediate) {
+void ltdcStartReloadI(LTDCDriver *ltdcp, bool_t immediately) {
 
-  chSysLock();
-  ltdcReloadI(ltdcp, immediate);
-  chSysUnlock();
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcStartReloadI");
+  chDbgAssert(ltdcp->state == LTDC_READY,
+              "ltdcStartReloadI(), #1", "not ready");
+  (void)ltdcp;
+
+  ltdcp->state = LTDC_ACTIVE;
+  if (immediately)
+    LTDC->SRCR |= LTDC_SRCR_IMR;
+  else
+    LTDC->SRCR |= LTDC_SRCR_VBR;
 }
 
 /**
- * @brief   Wait shadow registers reloading.
- * @details Waits while reloading LTDC shadow registers.
+ * @brief   Reload shadow registers.
+ * @details Starts reloading LTDC shadow registers, upon vsync or immediately.
+ * @post    At the end of the operation the configured callback is invoked.
  *
- * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] ltdcp         pointer to the @p LTDCDriver object
+ * @param[in] immediately   reload immediately, not upon vsync
+ *
+ * @api
+ */
+void ltdcStartReload(LTDCDriver *ltdcp, bool_t immediately) {
+
+  chSysLock();
+  ltdcStartReloadI(ltdcp, immediately);
+  chSysUnlock();
+}
+
+#if LTDC_USE_WAIT
+
+/**
+ * @brief   Waits for reload completion.
+ * @details This function waits for the driver to complete the current LTDC
+ *          register reload operation.
+ * @pre     An operation must be running while the function is invoked.
+ * @note    No more than one thread can wait on a LTDC driver using
+ *          this function.
+ *
+ * @param[in] ltdcp         pointer to the @p LTDCDriver object
+ *
+ * @sclass
+ */
+void ltdcWaitReloadS(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassS();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcWaitReloadS");
+  chDbgAssert(ltdcp->thread == NULL,
+              "ltdcWaitReloadS(), #1", "already waiting");
+
+  ltdcp->thread = chThdSelf();
+  chSchGoSleepS(THD_STATE_SUSPENDED);
+}
+
+/**
+ * @brief   Waits for reload completion.
+ * @details This function waits for the driver to complete the current LTDC
+ *          register reload operation.
+ * @pre     An operation must be running while the function is invoked.
+ * @note    No more than one thread can wait on a LTDC driver using
+ *          this function.
+ *
+ * @param[in] ltdcp         pointer to the @p LTDCDriver object
  *
  * @api
  */
 void ltdcWaitReload(LTDCDriver *ltdcp) {
 
-  while (ltdcIsReloading(ltdcp))
-    ;
+  chSysLock();
+  ltdcWaitReloadS(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Reload shadow registers.
+ * @details Reloads LTDC shadow registers, upon vsync or immediately.
+ *
+ * @param[in] ltdcp         pointer to the @p LTDCDriver object
+ * @param[in] immediately   reload immediately, not upon vsync
+ *
+ * @sclass
+ */
+void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately) {
+
+  chDbgCheckClassS();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcReloadS");
+
+  ltdcStartReloadI(ltdcp, immediately);
+  ltdcWaitReloadS(ltdcp);
+}
+
+/**
+ * @brief   Reload shadow registers.
+ * @details Reloads LTDC shadow registers, upon vsync or immediately.
+ *
+ * @param[in] ltdcp         pointer to the @p LTDCDriver object
+ * @param[in] immediately   reload immediately, not upon vsync
+ *
+ * @api
+ */
+void ltdcReload(LTDCDriver *ltdcp, bool_t immediately) {
+
+  chSysLock();
+  ltdcReloadS(ltdcp, immediately);
+  chSysUnlock();
+}
+
+#endif /* LTDC_USE_WAIT */
+
+/**
+ * @brief   Dithering enabled.
+ * @details Tells whether the dithering is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcIsDitheringEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcIsDitheringEnabledI");
+  (void)ltdcp;
+
+  return (LTDC->GCR & LTDC_GCR_DTEN) != 0;
 }
 
 /**
@@ -1546,6 +858,24 @@ bool_t ltdcIsDitheringEnabled(LTDCDriver *ltdcp) {
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
+ * @iclass
+ */
+void ltdcEnableDitheringI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcEnableDitheringI");
+  (void)ltdcp;
+
+  LTDC->GCR |= LTDC_GCR_DTEN;
+}
+
+/**
+ * @brief   Enable dithering.
+ * @details Enables dithering capabilities for pixel formats with less than
+ *          8 bits per channel.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
  * @api
  */
 void ltdcEnableDithering(LTDCDriver *ltdcp) {
@@ -1553,6 +883,24 @@ void ltdcEnableDithering(LTDCDriver *ltdcp) {
   chSysLock();
   ltdcEnableDitheringI(ltdcp);
   chSysUnlock();
+}
+
+/**
+ * @brief   Disable dithering.
+ * @details Disables dithering capabilities for pixel formats with less than
+ *          8 bits per channel.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcDisableDitheringI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcDisableDitheringI");
+  (void)ltdcp;
+
+  LTDC->GCR &= ~LTDC_GCR_DTEN;
 }
 
 /**
@@ -1572,38 +920,94 @@ void ltdcDisableDithering(LTDCDriver *ltdcp) {
 }
 
 /**
- * @brief   Get background color.
- * @details Gets the background color.
+ * @brief   Get clear screen color.
+ * @details Gets the clear screen (actual background) color.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
- * @return              background color, RGB-888
+ * @return              clear screen color, RGB-888
  *
- * @api
+ * @iclass
  */
-ltdc_color_t ltdcGetBackgroundColor(LTDCDriver *ltdcp) {
+ltdc_color_t ltdcGetClearColorI(LTDCDriver *ltdcp) {
 
-  ltdc_color_t c;
-  chSysLock();
-  c = ltdcGetBackgroundColorI(ltdcp);
-  chSysUnlock();
-  return c;
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcGetClearColorI");
+  (void)ltdcp;
+
+  return (ltdc_color_t)(LTDC->BCCR & 0x00FFFFFF);
 }
 
 /**
- * @brief   Set background color.
- * @details Sets the background color.
+ * @brief   Get clear screen color.
+ * @details Gets the clear screen (actual background) color.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] c         background color, RGB-888
+ *
+ * @return              clear screen color, RGB-888
  *
  * @api
  */
-void ltdcSetBackgroundColor(LTDCDriver *ltdcp, ltdc_color_t c) {
+ltdc_color_t ltdcGetClearColor(LTDCDriver *ltdcp) {
+
+  ltdc_color_t color;
+  chSysLock();
+  color = ltdcGetClearColorI(ltdcp);
+  chSysUnlock();
+  return color;
+}
+
+/**
+ * @brief   Set clear screen color.
+ * @details Sets the clear screen (actual background) color.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] c         clear screen color, RGB-888
+ *
+ * @iclass
+ */
+void ltdcSetClearColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcSetClearColorI");
+  (void)ltdcp;
+
+  LTDC->BCCR = (LTDC->BCCR & ~0x00FFFFFF) | (c & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set clear screen color.
+ * @details Sets the clear screen (actual background) color.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] c         clear screen color, RGB-888
+ *
+ * @api
+ */
+void ltdcSetClearColor(LTDCDriver *ltdcp, ltdc_color_t c) {
 
   chSysLock();
-  ltdcSetBackgroundColorI(ltdcp, c);
+  ltdcSetClearColorI(ltdcp, c);
   chSysUnlock();
+}
+
+/**
+ * @brief   Get line interrupt position.
+ * @details Gets the line interrupt position.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              line interrupt position
+ *
+ * @iclass
+ */
+uint16_t ltdcGetLineInterruptPosI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcGetLineInterruptPosI");
+  (void)ltdcp;
+
+  return (uint16_t)(LTDC->LIPCR & LTDC_LIPCR_LIPOS);
 }
 
 /**
@@ -1618,11 +1022,29 @@ void ltdcSetBackgroundColor(LTDCDriver *ltdcp, ltdc_color_t c) {
  */
 uint16_t ltdcGetLineInterruptPos(LTDCDriver *ltdcp) {
 
-  uint16_t pos;
+  uint16_t line;
   chSysLock();
-  pos = ltdcGetLineInterruptPosI(ltdcp);
+  line = ltdcGetLineInterruptPosI(ltdcp);
   chSysUnlock();
-  return pos;
+  return line;
+}
+
+/**
+ * @brief   Set line interrupt position.
+ * @details Sets the line interrupt position.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcSetLineInterruptPosI(LTDCDriver *ltdcp, uint16_t line) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcSetLineInterruptPosI");
+  (void)ltdcp;
+
+  LTDC->LIPCR = (LTDC->LIPCR & ~LTDC_LIPCR_LIPOS) |
+                ((uint32_t)line & LTDC_LIPCR_LIPOS);
 }
 
 /**
@@ -1633,11 +1055,134 @@ uint16_t ltdcGetLineInterruptPos(LTDCDriver *ltdcp) {
  *
  * @api
  */
-void ltdcSetLineInterruptPos(LTDCDriver *ltdcp, uint16_t pos) {
+void ltdcSetLineInterruptPos(LTDCDriver *ltdcp, uint16_t line) {
 
   chSysLock();
-  ltdcSetLineInterruptPosI(ltdcp, pos);
+  ltdcSetLineInterruptPosI(ltdcp, line);
   chSysUnlock();
+}
+
+/**
+ * @brief   Line interrupt enabled.
+ * @details Tells whether the line interrupt is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcIsLineInterruptEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcIsLineInterruptEnabledI");
+  (void)ltdcp;
+
+  return (LTDC->IER & LTDC_IER_LIE) != 0;
+}
+
+/**
+ * @brief   Line interrupt enabled.
+ * @details Tells whether the line interrupt is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @api
+ */
+bool_t ltdcIsLineInterruptEnabled(LTDCDriver *ltdcp) {
+
+  bool_t enabled;
+  chSysLock();
+  enabled = ltdcIsLineInterruptEnabledI(ltdcp);
+  chSysUnlock();
+  return enabled;
+}
+
+/**
+ * @brief   Enable line interrupt.
+ * @details Enables line interrupt.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcEnableLineInterruptI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcEnableLineInterruptI");
+  (void)ltdcp;
+
+  LTDC->IER |= LTDC_IER_LIE;
+}
+
+/**
+ * @brief   Enable line interrupt.
+ * @details Enables line interrupt.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcEnableLineInterrupt(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcEnableLineInterruptI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Disable line interrupt.
+ * @details Disables line interrupt.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcDisableLineInterruptI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcDisableLineInterruptI");
+  (void)ltdcp;
+
+  LTDC->IER &= ~LTDC_IER_LIE;
+}
+
+/**
+ * @brief   Disable line interrupt.
+ * @details Disables line interrupt.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcDisableLineInterrupt(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcDisableLineInterruptI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get current position.
+ * @details Gets the current position.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] xp       pointer to the destination horizontal coordinate
+ * @param[out] yp       pointer to the destination vertical coordinate
+ *
+ * @iclass
+ */
+void ltdcGetCurrentPosI(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcGetCurrentPosI");
+  (void)ltdcp;
+
+  const uint32_t r = LTDC->CPSR;
+  *xp = (uint16_t)((r & LTDC_CPSR_CXPOS) >> 16);
+  *yp = (uint16_t)((r & LTDC_CPSR_CYPOS) >>  0);
 }
 
 /**
@@ -1657,9 +1202,37 @@ void ltdcGetCurrentPos(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp) {
   chSysUnlock();
 }
 
+/** @} */
+
 /**
- * @brief   Get layer enabled flags.
+ * @name    LTDC background layer (layer 1) methods
+ * @{
+ */
+
+/**
+ * @brief   Get background layer enabled flags.
  * @details Returns all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled flags
+ *
+ * @iclass
+ */
+ltdc_flags_t ltdcBgGetEnableFlagsI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetEnableFlagsI");
+  (void)ltdcp;
+
+  return LTDC_Layer1->CR & LTDC_LEF_MASK;
+}
+
+/**
+ * @brief   Get background layer enabled flags.
+ * @details Returns all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
@@ -1667,551 +1240,2511 @@ void ltdcGetCurrentPos(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp) {
  *
  * @api
  */
-ltdc_flags_t ltdcLayerGetEnableFlags(LTDCDriver *ltdcp,
-                                     ltdc_layerid_t layer) {
+ltdc_flags_t ltdcBgGetEnableFlags(LTDCDriver *ltdcp) {
 
   ltdc_flags_t flags;
   chSysLock();
-  flags = ltdcLayerGetEnableFlagsI(ltdcp, layer);
+  flags = ltdcBgGetEnableFlagsI(ltdcp);
   chSysUnlock();
   return flags;
 }
 
 /**
- * @brief   Set layer enabled flags.
+ * @brief   Set background layer enabled flags.
  * @details Sets all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] flags     enabled flags
+ *
+ * @iclass
+ */
+void ltdcBgSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetEnableFlagsI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR = (LTDC_Layer1->CR & ~LTDC_LEF_MASK) |
+                    ((uint32_t)flags & LTDC_LEF_MASK);
+}
+
+/**
+ * @brief   Set background layer enabled flags.
+ * @details Sets all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] flags     enabled flags
  *
  * @api
  */
-void ltdcLayerSetEnableFlags(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              ltdc_flags_t flags) {
+void ltdcBgSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags) {
 
   chSysLock();
-  ltdcLayerSetEnableFlagsI(ltdcp, layer, flags);
+  ltdcBgSetEnableFlagsI(ltdcp, flags);
   chSysUnlock();
 }
 
 /**
- * @brief   Layer enabled.
- * @details Tells whether a layer is enabled.
+ * @brief   Background layer enabled.
+ * @details Tells whether the background layer (layer 1) is enabled.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcBgIsEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgIsEnabledI");
+  (void)ltdcp;
+
+  return (LTDC_Layer1->CR & ~LTDC_LxCR_LEN) != 0;
+}
+
+/**
+ * @brief   Background layer enabled.
+ * @details Tells whether the background layer (layer 1) is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              enabled
  *
  * @api
  */
-bool_t ltdcLayerIsEnabled(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+bool_t ltdcBgIsEnabled(LTDCDriver *ltdcp) {
 
   bool_t enabled;
   chSysLock();
-  enabled = ltdcLayerIsEnabledI(ltdcp, layer);
+  enabled = ltdcBgIsEnabledI(ltdcp);
   chSysUnlock();
   return enabled;
 }
 
 /**
- * @brief   Layer enable.
- * @details Enables a layer.
+ * @brief   Background layer enable.
+ * @details Enables the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgEnableI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgEnableI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR |= LTDC_LxCR_LEN;
+}
+
+/**
+ * @brief   Background layer enable.
+ * @details Enables the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerEnable(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgEnable(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerEnableI(ltdcp, layer);
+  ltdcBgEnableI(ltdcp);
   chSysUnlock();
 }
 
 /**
- * @brief   Layer disable.
- * @details Disables a layer.
+ * @brief   Background layer disable.
+ * @details Disables the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgDisableI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgDisableI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR &= ~LTDC_LxCR_LEN;
+}
+
+/**
+ * @brief   Background layer disable.
+ * @details Disables the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerDisable(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgDisable(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerDisableI(ltdcp, layer);
+  ltdcBgDisableI(ltdcp);
   chSysUnlock();
 }
 
 /**
- * @brief   Layer palette enabled.
- * @details Tells whether a layer palette (color lookup table) is enabled.
+ * @brief   Background layer palette enabled.
+ * @details Tells whether the background layer (layer 1) palette (color lookup
+ *          table) is enabled.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcBgIsPaletteEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgIsPaletteEnabledI");
+  (void)ltdcp;
+
+  return (LTDC_Layer1->CR & ~LTDC_LxCR_CLUTEN) != 0;
+}
+
+/**
+ * @brief   Background layer palette enabled.
+ * @details Tells whether the background layer (layer 1) palette (color lookup
+ *          table) is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              enabled
  *
  * @api
  */
-bool_t ltdcLayerIsPaletteEnabled(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+bool_t ltdcBgIsPaletteEnabled(LTDCDriver *ltdcp) {
 
   bool_t enabled;
   chSysLock();
-  enabled = ltdcLayerIsPaletteEnabledI(ltdcp, layer);
+  enabled = ltdcBgIsPaletteEnabledI(ltdcp);
   chSysUnlock();
   return enabled;
 }
 
 /**
- * @brief   Enable layer palette.
- * @details Enables the palette (color lookup table) of a layer.
+ * @brief   Enable background layer palette.
+ * @details Enables the palette (color lookup table) of the background layer
+ *          (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgEnablePaletteI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgEnablePaletteI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR |= LTDC_LxCR_CLUTEN;
+}
+
+/**
+ * @brief   Enable background layer palette.
+ * @details Enables the palette (color lookup table) of the background layer
+ *          (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerEnablePalette(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgEnablePalette(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerEnablePaletteI(ltdcp, layer);
+  ltdcBgEnablePaletteI(ltdcp);
   chSysUnlock();
 }
 
 /**
- * @brief   Disable layer palette.
- * @details Disables the palette (color lookup table) of a layer.
+ * @brief   Disable background layer palette.
+ * @details Disables the palette (color lookup table) of the background layer
+ *          (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgDisablePaletteI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgDisablePaletteI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR &= ~LTDC_LxCR_CLUTEN;
+}
+
+/**
+ * @brief   Disable background layer palette.
+ * @details Disables the palette (color lookup table) of the background layer
+ *          (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerDisablePalette(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgDisablePalette(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerDisablePaletteI(ltdcp, layer);
+  ltdcBgDisablePaletteI(ltdcp);
   chSysUnlock();
 }
 
 /**
- * @brief   Set layer palette color.
+ * @brief   Set background layer palette color.
  * @details Sets the color of a palette (color lookup table) slot to the
- *          specified layer.
+ *          background layer (layer 1).
+ * @pre     The layer must be disabled.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] slot      palette slot
+ * @param[in] c         color, RGB-888
+ *
+ * @iclass
+ */
+void ltdcBgSetPaletteColorI(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetPaletteColorI");
+  chDbgAssert(!ltdcBgIsEnabledI(ltdcp),
+              "ltdcBgSetPaletteColorI(), #1", "invalid state")
+  (void)ltdcp;
+
+  LTDC_Layer1->CLUTWR = ((uint32_t)slot << 24) | (c & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set background layer palette color.
+ * @details Sets the color of a palette (color lookup table) slot to the
+ *          background layer (layer 1).
+ * @pre     The layer must be disabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] slot      palette slot
  * @param[in] c         color, RGB-888
  *
  * @api
  */
-void ltdcLayerSetPaletteColor(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              uint8_t slot, ltdc_color_t c) {
+void ltdcBgSetPaletteColor(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c) {
 
   chSysLock();
-  ltdcLayerSetPaletteColorI(ltdcp, layer, slot, c);
+  ltdcBgSetPaletteColorI(ltdcp, slot, c);
   chSysUnlock();
 }
 
 /**
- * @brief   Set layer palette.
+ * @brief   Set background layer palette.
  * @details Sets the entire palette color (color lookup table) slot.
- * @note    Palette colors should be changed only at vsync, or while the LTDC
- *          is disabled.
+ * @pre     The layer must be disabled.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] colors    array of palette colors, RGB-888
+ * @param[in] length    number of palette colors
+ *
+ * @iclass
+ */
+void ltdcBgSetPaletteI(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                       uint16_t length) {
+
+  uint16_t i;
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetPaletteI");
+  chDbgCheck((colors == NULL) == (length == 0), "ltdcBgSetPaletteI");
+  chDbgAssert(length <= LTDC_MAX_PALETTE_LENGTH,
+              "ltdcBgSetPaletteI(), #1", "outside range");
+  chDbgAssert(!ltdcBgIsEnabledI(ltdcp),
+              "ltdcBgSetPaletteI(), #2", "invalid state")
+  (void)ltdcp;
+
+  for (i = 0; i < length; ++i)
+    LTDC_Layer1->CLUTWR = ((uint32_t)i << 24) | (colors[i] & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set background layer palette.
+ * @details Sets the entire palette color (color lookup table) slot.
+ * @pre     The layer must be disabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] colors    array of palette colors, RGB-888
  * @param[in] length    number of palette colors
  *
  * @api
  */
-void ltdcLayerSetPalette(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                         const ltdc_color_t colors[], uint16_t length) {
+void ltdcBgSetPalette(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                      uint16_t length) {
 
   chSysLock();
-  ltdcLayerSetPaletteI(ltdcp, layer, colors, length);
+  ltdcBgSetPaletteI(ltdcp, colors, length);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer pixel format.
- * @details Gets the pixel format of a layer.
+ * @brief   Get background layer pixel format.
+ * @details Gets the pixel format of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              pixel format
+ *
+ * @iclass
+ */
+ltdc_pixfmt_t ltdcBgGetPixelFormatI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetPixelFormatI");
+  (void)ltdcp;
+
+  return (ltdc_pixfmt_t)(LTDC_Layer1->PFCR & LTDC_LxPFCR_PF);
+}
+
+/**
+ * @brief   Get background layer pixel format.
+ * @details Gets the pixel format of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              pixel format
  *
  * @api
  */
-ltdc_pixfmt_t ltdcLayerGetPixelFormat(LTDCDriver *ltdcp,
-                                      ltdc_layerid_t layer) {
+ltdc_pixfmt_t ltdcBgGetPixelFormat(LTDCDriver *ltdcp) {
 
   ltdc_pixfmt_t fmt;
   chSysLock();
-  fmt = ltdcLayerGetPixelFormatI(ltdcp, layer);
+  fmt = ltdcBgGetPixelFormatI(ltdcp);
   chSysUnlock();
   return fmt;
 }
 
 /**
- * @brief   Set layer pixel format.
- * @details Sets the pixel format of a layer.
+ * @brief   Set background layer pixel format.
+ * @details Sets the pixel format of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] fmt       pixel format
+ *
+ * @iclass
+ */
+void ltdcBgSetPixelFormatI(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetPixelFormatI");
+  chDbgAssert(fmt >= LTDC_MIN_PIXFMT_ID,
+              "ltdcBgSetPixelFormatI(), #2", "outside range");
+  chDbgAssert(fmt <= LTDC_MAX_PIXFMT_ID,
+              "ltdcBgSetPixelFormatI(), #3", "outside range");
+  (void)ltdcp;
+
+  LTDC_Layer1->PFCR = (LTDC_Layer1->PFCR & ~LTDC_LxPFCR_PF) |
+                      ((uint32_t)fmt & LTDC_LxPFCR_PF);
+}
+
+/**
+ * @brief   Set background layer pixel format.
+ * @details Sets the pixel format of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] fmt       pixel format
  *
  * @api
  */
-void ltdcLayerSetPixelFormat(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                             ltdc_pixfmt_t fmt) {
+void ltdcBgSetPixelFormat(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt) {
 
   chSysLock();
-  ltdcLayerSetPixelFormatI(ltdcp, layer, fmt);
+  ltdcBgSetPixelFormatI(ltdcp, fmt);
   chSysUnlock();
 }
 
 /**
- * @brief   Layer color keying enabled.
- * @details Tells whether a layer has color keying enabled.
+ * @brief   Background layer color keying enabled.
+ * @details Tells whether the background layer (layer 1) has color keying
+ *          enabled.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcBgIsKeyingEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgIsKeyingEnabledI");
+  (void)ltdcp;
+
+  return (LTDC_Layer1->CR & ~LTDC_LxCR_COLKEN) != 0;
+}
+
+/**
+ * @brief   Background layer color keying enabled.
+ * @details Tells whether the background layer (layer 1) has color keying
+ *          enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              enabled
  *
  * @api
  */
-bool_t ltdcLayerIsKeyingEnabled(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+bool_t ltdcBgIsKeyingEnabled(LTDCDriver *ltdcp) {
 
   bool_t enabled;
   chSysLock();
-  enabled = ltdcLayerIsKeyingEnabledI(ltdcp, layer);
+  enabled = ltdcBgIsKeyingEnabledI(ltdcp);
   chSysUnlock();
   return enabled;
 }
 
 /**
- * @brief   Enable layer color keying.
- * @details Enables color keying capabilities of a layer.
+ * @brief   Enable background layer color keying.
+ * @details Enables color keying capabilities of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgEnableKeyingI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgEnableKeyingI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR |= LTDC_LxCR_COLKEN;
+}
+
+/**
+ * @brief   Enable background layer color keying.
+ * @details Enables color keying capabilities of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerEnableKeying(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgEnableKeying(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerEnableKeyingI(ltdcp, layer);
+  ltdcBgEnableKeyingI(ltdcp);
   chSysUnlock();
 }
 
 /**
- * @brief   Disable layer color keying.
- * @details Disables color keying capabilities of a layer.
+ * @brief   Disable background layer color keying.
+ * @details Disables color keying capabilities of the background layer (layer
+ *          1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgDisableKeyingI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgDisableKeyingI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CR &= ~LTDC_LxCR_COLKEN;
+}
+
+/**
+ * @brief   Disable background layer color keying.
+ * @details Disables color keying capabilities of the background layer (layer
+ *          1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerDisableKeying(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgDisableKeying(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerDisableKeyingI(ltdcp, layer);
+  ltdcBgDisableKeyingI(ltdcp);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer color key.
- * @details Gets the color key of a layer.
+ * @brief   Get background layer color key.
+ * @details Gets the color key of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              color key, RGB-888
+ *
+ * @iclass
+ */
+ltdc_color_t ltdcBgGetKeyingColorI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetKeyingColorI");
+  (void)ltdcp;
+
+  return (ltdc_color_t)(LTDC_Layer1->CKCR & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Get background layer color key.
+ * @details Gets the color key of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              color key, RGB-888
  *
  * @api
  */
-ltdc_color_t ltdcLayerGetKeyingColor(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+ltdc_color_t ltdcBgGetKeyingColor(LTDCDriver *ltdcp) {
 
-  ltdc_color_t c;
+  ltdc_color_t color;
   chSysLock();
-  c = ltdcLayerGetKeyingColorI(ltdcp, layer);
+  color = ltdcBgGetKeyingColorI(ltdcp);
   chSysUnlock();
-  return c;
+  return color;
 }
 
 /**
- * @brief   Set layer color key.
- * @details Sets the color key of a layer.
+ * @brief   Set background layer color key.
+ * @details Sets the color key of the background layer.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] c         color key, RGB-888
+ *
+ * @iclass
+ */
+void ltdcBgSetKeyingColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetKeyingColorI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CKCR = (LTDC_Layer1->CKCR & ~0x00FFFFFF) |
+                      ((uint32_t)c & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set background layer color key.
+ * @details Sets the color key of the background layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         color key, RGB-888
  *
  * @api
  */
-void ltdcLayerSetKeyingColor(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                             ltdc_color_t c) {
+void ltdcBgSetKeyingColor(LTDCDriver *ltdcp, ltdc_color_t c) {
 
   chSysLock();
-  ltdcLayerSetKeyingColorI(ltdcp, layer, c);
+  ltdcBgSetKeyingColorI(ltdcp, c);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer constant alpha.
- * @details Gets the constant alpha component of a layer.
+ * @brief   Get background layer constant alpha.
+ * @details Gets the constant alpha component of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              constant alpha component, A-8
+ *
+ * @iclass
+ */
+uint8_t ltdcBgGetConstantAlphaI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetConstantAlphaI");
+  (void)ltdcp;
+
+  return (uint8_t)(LTDC_Layer1->CACR & LTDC_LxCACR_CONSTA);
+}
+
+/**
+ * @brief   Get background layer constant alpha.
+ * @details Gets the constant alpha component of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              constant alpha component, A-8
  *
  * @api
  */
-uint8_t ltdcLayerGetConstantAlpha(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+uint8_t ltdcBgGetConstantAlpha(LTDCDriver *ltdcp) {
 
   uint8_t a;
   chSysLock();
-  a = ltdcLayerGetConstantAlphaI(ltdcp, layer);
+  a = ltdcBgGetConstantAlphaI(ltdcp);
   chSysUnlock();
   return a;
 }
 
 /**
- * @brief   Set layer constant alpha.
- * @details Sets the constant alpha component of a layer.
+ * @brief   Set background layer constant alpha.
+ * @details Sets the constant alpha component of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] a         constant alpha component, A-8
+ *
+ * @iclass
+ */
+void ltdcBgSetConstantAlphaI(LTDCDriver *ltdcp, uint8_t a) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetConstantAlphaI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CACR = (LTDC_Layer1->CACR & ~LTDC_LxCACR_CONSTA) |
+                      ((uint32_t)a & LTDC_LxCACR_CONSTA);
+}
+
+/**
+ * @brief   Set background layer constant alpha.
+ * @details Sets the constant alpha component of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] a         constant alpha component, A-8
  *
  * @api
  */
-void ltdcLayerSetConstantAlpha(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               uint8_t a) {
+void ltdcBgSetConstantAlpha(LTDCDriver *ltdcp, uint8_t a) {
 
   chSysLock();
-  ltdcLayerSetConstantAlphaI(ltdcp, layer, a);
+  ltdcBgSetConstantAlphaI(ltdcp, a);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer default color.
- * @details Gets the default color of a layer.
+ * @brief   Get background layer default color.
+ * @details Gets the default color of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              default color, RGB-888
+ *
+ * @iclass
+ */
+ltdc_color_t ltdcBgGetDefaultColorI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetDefaultColorI");
+  (void)ltdcp;
+
+  return (ltdc_color_t)LTDC_Layer1->DCCR;
+}
+
+/**
+ * @brief   Get background layer default color.
+ * @details Gets the default color of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              default color, RGB-888
  *
  * @api
  */
-ltdc_color_t ltdcLayerGetDefaultColor(LTDCDriver *ltdcp,
-                                      ltdc_layerid_t layer) {
+ltdc_color_t ltdcBgGetDefaultColor(LTDCDriver *ltdcp) {
 
-  ltdc_color_t c;
+  ltdc_color_t color;
   chSysLock();
-  c = ltdcLayerGetDefaultColorI(ltdcp, layer);
+  color = ltdcBgGetDefaultColorI(ltdcp);
   chSysUnlock();
-  return c;
+  return color;
 }
 
 /**
- * @brief   Set layer default color.
- * @details Sets the default color of a layer.
+ * @brief   Set background layer default color.
+ * @details Sets the default color of the background layer.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] c         default color, RGB-888
+ *
+ * @iclass
+ */
+void ltdcBgSetDefaultColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetDefaultColorI");
+  (void)ltdcp;
+
+  LTDC_Layer1->DCCR = (uint32_t)c;
+}
+
+/**
+ * @brief   Set background layer default color.
+ * @details Sets the default color of the background layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         default color, RGB-888
  *
  * @api
  */
-void ltdcLayerSetDefaultColor(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              ltdc_color_t c) {
+void ltdcBgSetDefaultColor(LTDCDriver *ltdcp, ltdc_color_t c) {
 
   chSysLock();
-  ltdcLayerSetDefaultColorI(ltdcp, layer, c);
+  ltdcBgSetDefaultColorI(ltdcp, c);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer blending factors.
- * @details Gets the blending factors of a layer.
+ * @brief   Get background layer blending factors.
+ * @details Gets the blending factors of the background layer.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @return              blending factors
+ *
+ * @iclass
+ */
+ltdc_blendf_t ltdcBgGetBlendingFactorsI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetBlendingFactorsI");
+  (void)ltdcp;
+
+  return (ltdc_blendf_t)(LTDC_Layer1->BFCR & LTDC_LxBFCR_BF);
+}
+
+/**
+ * @brief   Get background layer blending factors.
+ * @details Gets the blending factors of the background layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              blending factors
  *
  * @api
  */
-ltdc_blendf_t ltdcLayerGetBlendingFactors(LTDCDriver *ltdcp,
-                                          ltdc_layerid_t layer) {
+ltdc_blendf_t ltdcBgGetBlendingFactors(LTDCDriver *ltdcp) {
 
-  ltdc_blendf_t factors;
+  ltdc_blendf_t bf;
   chSysLock();
-  factors = ltdcLayerGetBlendingFactorsI(ltdcp, layer);
+  bf = ltdcBgGetBlendingFactorsI(ltdcp);
   chSysUnlock();
-  return factors;
+  return bf;
 }
 
 /**
- * @brief   Set layer blending factors.
- * @details Sets the blending factors of a layer.
+ * @brief   Set background layer blending factors.
+ * @details Sets the blending factors of the background layer.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] factors   blending factors
+ *
+ * @iclass
+ */
+void ltdcBgSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_blendf_t bf) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetBlendingFactorsI");
+  (void)ltdcp;
+
+  LTDC_Layer1->BFCR = (LTDC_Layer1->BFCR & ~LTDC_LxBFCR_BF) |
+                      ((uint32_t)bf & LTDC_LxBFCR_BF);
+}
+
+/**
+ * @brief   Set background layer blending factors.
+ * @details Sets the blending factors of the background layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] factors   blending factors
  *
  * @api
  */
-void ltdcLayerSetBlendingFactors(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                 ltdc_blendf_t bf) {
+void ltdcBgSetBlendingFactors(LTDCDriver *ltdcp, ltdc_blendf_t bf) {
 
   chSysLock();
-  ltdcLayerSetBlendingFactorsI(ltdcp, layer, bf);
+  ltdcBgSetBlendingFactorsI(ltdcp, bf);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer window specs.
- * @details Gets the window specifications of a layer.
+ * @brief   Get background layer window specs.
+ * @details Gets the window specifications of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] winp     pointer to the output window specifications
+ * @param[out] windowp  pointer to the window specifications
+ *
+ * @iclass
+ */
+void ltdcBgGetWindowI(LTDCDriver *ltdcp, ltdc_window_t *windowp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetWindowI");
+  chDbgCheck(windowp != NULL, "ltdcBgGetWindowI");
+  (void)ltdcp;
+
+  windowp->hstart =
+    (uint16_t)((LTDC_Layer1->WHPCR & LTDC_LxWHPCR_WHSTPOS) >>  0);
+  windowp->hstop =
+    (uint16_t)((LTDC_Layer1->WHPCR & LTDC_LxWHPCR_WHSPPOS) >> 16);
+  windowp->vstart =
+    (uint16_t)((LTDC_Layer1->WVPCR & LTDC_LxWVPCR_WVSTPOS) >>  0);
+  windowp->vstop =
+    (uint16_t)((LTDC_Layer1->WVPCR & LTDC_LxWVPCR_WVSPPOS) >> 16);
+}
+
+/**
+ * @brief   Get background layer window specs.
+ * @details Gets the window specifications of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] windowp  pointer to the window specifications
  *
  * @api
  */
-void ltdcLayerGetWindow(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                        ltdc_window_t *winp) {
+void ltdcBgGetWindow(LTDCDriver *ltdcp, ltdc_window_t *windowp) {
 
   chSysLock();
-  ltdcLayerGetWindowI(ltdcp, layer, winp);
+  ltdcBgGetWindowI(ltdcp, windowp);
   chSysUnlock();
 }
 
 /**
- * @brief   Set layer window specs.
- * @details Sets the window specifications of a layer.
+ * @brief   Set background layer window specs.
+ * @details Sets the window specifications of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] winp     pointer to the window specifications
+ * @param[in] windowp   pointer to the window specifications
+ *
+ * @iclass
+ */
+void ltdcBgSetWindowI(LTDCDriver *ltdcp, const ltdc_window_t *windowp) {
+
+  uint32_t start, stop;
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetWindowI");
+  chDbgCheck(windowp != NULL, "ltdcBgSetWindowI");
+  (void)ltdcp;
+
+  chDbgAssert(windowp->hstop < ltdcp->config->screen_width,
+              "ltdcBgSetWindowI(), #11", "outside range");
+  chDbgAssert(windowp->vstop < ltdcp->config->screen_height,
+              "ltdcBgSetWindowI(), #12", "outside range");
+
+  /* Horizontal boundaries.*/
+  start = (uint32_t)windowp->hstart + ltdcp->active_window.hstart;
+  stop  = (uint32_t)windowp->hstop  + ltdcp->active_window.hstart;
+
+  chDbgAssert(start >= ltdcp->active_window.hstart,
+              "ltdcBgSetWindowI(), #21", "outside range");
+  chDbgAssert(stop <= ltdcp->active_window.hstop,
+              "ltdcBgSetWindowI(), #22", "outside range");
+
+  LTDC_Layer1->WHPCR = ((start <<  0) & LTDC_LxWHPCR_WHSTPOS) |
+                       ((stop  << 16) & LTDC_LxWHPCR_WHSPPOS);
+
+  /* Vertical boundaries.*/
+  start = (uint32_t)windowp->vstart + ltdcp->active_window.vstart;
+  stop  = (uint32_t)windowp->vstop  + ltdcp->active_window.vstart;
+
+  chDbgAssert(start >= ltdcp->active_window.vstart,
+              "ltdcBgSetWindowI(), #31", "outside range");
+  chDbgAssert(stop <= ltdcp->active_window.vstop,
+              "ltdcBgSetWindowI(), #32", "outside range");
+
+  LTDC_Layer1->WVPCR = ((start <<  0) & LTDC_LxWVPCR_WVSTPOS) |
+                       ((stop  << 16) & LTDC_LxWVPCR_WVSPPOS);
+}
+
+/**
+ * @brief   Set background layer window specs.
+ * @details Sets the window specifications of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] windowp   pointer to the window specifications
  *
  * @api
  */
-void ltdcLayerSetWindow(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                        const ltdc_window_t *winp) {
+void ltdcBgSetWindow(LTDCDriver *ltdcp, const ltdc_window_t *windowp) {
 
   chSysLock();
-  ltdcLayerSetWindowI(ltdcp, layer, winp);
+  ltdcBgSetWindowI(ltdcp, windowp);
   chSysUnlock();
 }
 
 /**
- * @brief   Set layer window as invalid.
- * @details Sets the window specifications of a layer so that the window is
- *          pixel sized at the screen origin.
+ * @brief   Set background layer window as invalid.
+ * @details Sets the window specifications of the background layer (layer 1)
+ *          so that the window is pixel sized at the screen origin.
  * @note    Useful before reconfiguring the frame specifications of the layer,
  *          to avoid errors.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ *
+ * @iclass
+ */
+void ltdcBgSetInvalidWindowI(LTDCDriver *ltdcp) {
+
+  ltdcBgSetWindowI(ltdcp, &ltdc_invalid_window);
+}
+
+/**
+ * @brief   Set background layer window as invalid.
+ * @details Sets the window specifications of the background layer (layer 1)
+ *          so that the window is pixel sized at the screen origin.
+ * @note    Useful before reconfiguring the frame specifications of the layer,
+ *          to avoid errors.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @api
  */
-void ltdcLayerSetInvalidWindow(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void ltdcBgSetInvalidWindow(LTDCDriver *ltdcp) {
 
   chSysLock();
-  ltdcLayerSetInvalidWindowI(ltdcp, layer);
+  ltdcBgSetWindowI(ltdcp, &ltdc_invalid_window);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer frame buffer specs.
- * @details Gets the frame buffer specifications of a layer.
+ * @brief   Get background layer frame buffer specs.
+ * @details Gets the frame buffer specifications of the background layer
+ *          (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
- * @param[out] framep   pointer to the output frame buffer specifications
+ * @param[out] framep   pointer to the frame buffer specifications
  *
- * @api
+ * @iclass
  */
-void ltdcLayerGetFrame(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                       ltdc_frame_t *framep) {
+void ltdcBgGetFrameI(LTDCDriver *ltdcp, ltdc_frame_t *framep) {
 
-  chSysLock();
-  ltdcLayerGetFrameI(ltdcp, layer, framep);
-  chSysUnlock();
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetFrameI");
+  chDbgCheck(framep != NULL, "ltdcBgGetFrameI");
+
+  framep->bufferp = (void *)(LTDC_Layer1->CFBAR & LTDC_LxCFBAR_CFBADD);
+  framep->pitch   = (size_t)((LTDC_Layer1->CFBLR & LTDC_LxCFBLR_CFBP) >> 16);
+  framep->width   = (uint16_t)(((LTDC_Layer1->CFBLR & LTDC_LxCFBLR_CFBLL) - 3) /
+                    ltdcBytesPerPixel(ltdcBgGetPixelFormatI(ltdcp)));
+  framep->height  = (uint16_t)(LTDC_Layer1->CFBLNR & LTDC_LxCFBLNR_CFBLNBR);
 }
 
 /**
- * @brief   Set layer frame buffer specs.
- * @details Sets the frame buffer specifications of a layer.
+ * @brief   Get background layer frame buffer specs.
+ * @details Gets the frame buffer specifications of the background layer
+ *          (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
  * @param[out] framep   pointer to the frame buffer specifications
  *
  * @api
  */
-void ltdcLayerSetFrame(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                       const ltdc_frame_t *framep) {
+void ltdcBgGetFrame(LTDCDriver *ltdcp, ltdc_frame_t *framep) {
 
   chSysLock();
-  ltdcLayerSetFrameI(ltdcp, layer, framep);
+  ltdcBgGetFrameI(ltdcp, framep);
   chSysUnlock();
 }
 
 /**
- * @brief   Get layer frame buffer address.
- * @details Gets the frame buffer address of a layer.
+ * @brief   Set background layer frame buffer specs.
+ * @details Sets the frame buffer specifications of the background layer
+ *          (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] framep    pointer to the frame buffer specifications
+ *
+ * @iclass
+ */
+void ltdcBgSetFrameI(LTDCDriver *ltdcp, const ltdc_frame_t *framep) {
+
+  size_t linesize;
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetFrameI");
+  chDbgCheck(framep != NULL, "ltdcBgSetFrameI");
+
+  ltdcBgSetPixelFormatI(ltdcp, framep->fmt);
+
+  linesize = ltdcBytesPerPixel(framep->fmt) * framep->width;
+
+  chDbgAssert(framep->width  <= ltdcp->config->screen_width,
+              "ltdcBgSetFrameI(), #1", "outside range");
+  chDbgAssert(framep->height <= ltdcp->config->screen_height,
+              "ltdcBgSetFrameI(), #2", "outside range");
+  chDbgAssert(linesize >= LTDC_MIN_FRAME_WIDTH_BYTES,
+              "ltdcBgSetFrameI(), #3", "outside range");
+  chDbgAssert(linesize <= LTDC_MAX_FRAME_WIDTH_BYTES,
+              "ltdcBgSetFrameI(), #4", "outside range");
+  chDbgAssert(framep->height >= LTDC_MIN_FRAME_HEIGHT_LINES,
+              "ltdcBgSetFrameI(), #5", "outside range");
+  chDbgAssert(framep->height <= LTDC_MAX_FRAME_HEIGHT_LINES,
+              "ltdcBgSetFrameI(), #6", "outside range");
+  chDbgAssert(framep->pitch  >= linesize,
+              "ltdcBgSetFrameI(), #7", "outside range");
+
+  LTDC_Layer1->CFBAR = (uint32_t)framep->bufferp & LTDC_LxCFBAR_CFBADD;
+  LTDC_Layer1->CFBLR = ((((uint32_t)framep->pitch << 16) & LTDC_LxCFBLR_CFBP) |
+                       ((linesize + 3) & LTDC_LxCFBLR_CFBLL));
+  LTDC_Layer1->CFBLNR = (uint32_t)framep->height & LTDC_LxCFBLNR_CFBLNBR;
+}
+
+/**
+ * @brief   Set background layer frame buffer specs.
+ * @details Sets the frame buffer specifications of the background layer
+ *          (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] framep    pointer to the frame buffer specifications
+ *
+ * @api
+ */
+void ltdcBgSetFrame(LTDCDriver *ltdcp, const ltdc_frame_t *framep) {
+
+  chSysLock();
+  ltdcBgSetFrameI(ltdcp, framep);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get background layer frame buffer address.
+ * @details Gets the frame buffer address of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              frame buffer address
+ *
+ * @iclass
+ */
+void *ltdcBgGetFrameAddressI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetFrameAddressI");
+  (void)ltdcp;
+
+  return (void *)LTDC_Layer1->CFBAR;
+}
+
+/**
+ * @brief   Get background layer frame buffer address.
+ * @details Gets the frame buffer address of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
  * @return              frame buffer address
  *
  * @api
  */
-void *ltdcLayerGetFrameAddress(LTDCDriver *ltdcp, ltdc_layerid_t layer) {
+void *ltdcBgGetFrameAddress(LTDCDriver *ltdcp) {
 
   void *bufferp;
   chSysLock();
-  bufferp = ltdcLayerGetFrameAddressI(ltdcp, layer);
+  bufferp = ltdcBgGetFrameAddressI(ltdcp);
   chSysUnlock();
   return bufferp;
 }
 
 /**
- * @brief   Set layer frame buffer address.
- * @details Sets the frame buffer address of a layer.
+ * @brief   Set background layer frame buffer address.
+ * @details Sets the frame buffer address of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] layer     layer identifier
+ * @param[in] bufferp   frame buffer address
+ *
+ * @iclass
+ */
+void ltdcBgSetFrameAddressI(LTDCDriver *ltdcp, void *bufferp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetFrameAddressI");
+  (void)ltdcp;
+
+  LTDC_Layer1->CFBAR = (uint32_t)bufferp;
+}
+
+/**
+ * @brief   Set background layer frame buffer address.
+ * @details Sets the frame buffer address of the background layer (layer 1).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] bufferp   frame buffer address
  *
  * @api
  */
-void ltdcLayerSetFrameAddress(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                              void *bufferp) {
+void ltdcBgSetFrameAddress(LTDCDriver *ltdcp, void *bufferp) {
 
   chSysLock();
-  ltdcLayerSetFrameAddressI(ltdcp, layer, bufferp);
+  ltdcBgSetFrameAddressI(ltdcp, bufferp);
   chSysUnlock();
 }
+
+/**
+ * @brief   Get background layer specifications.
+ * @details Gets the background layer (layer 1) specifications at once.
+ * @note    If palette specifications cannot be retrieved, they are set to
+ *          @p NULL. This is not an error.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] cfgp     pointer to the layer specifications
+ *
+ * @iclass
+ */
+void ltdcBgGetLayerI(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgGetLayerI");
+  chDbgCheck(cfgp != NULL, "ltdcBgGetLayerI");
+
+  ltdcBgGetFrameI(ltdcp, (ltdc_frame_t *)cfgp->frame);
+  ltdcBgGetWindowI(ltdcp, (ltdc_window_t *)cfgp->window);
+  cfgp->def_color = ltdcBgGetDefaultColorI(ltdcp);
+  cfgp->key_color = ltdcBgGetKeyingColorI(ltdcp);
+  cfgp->const_alpha = ltdcBgGetConstantAlphaI(ltdcp);
+  cfgp->blending = ltdcBgGetBlendingFactorsI(ltdcp);
+
+  cfgp->pal_colors = NULL;
+  cfgp->pal_length = 0;
+
+  cfgp->flags = ltdcBgGetEnableFlagsI(ltdcp);
+}
+
+/**
+ * @brief   Get background layer specifications.
+ * @details Gets the background layer (layer 1) specifications at once.
+ * @note    If palette specifications cannot be retrieved, they are set to
+ *          @p NULL. This is not an error.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] cfgp     pointer to the layer specifications
+ *
+ * @api
+ */
+void ltdcBgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp) {
+
+  chSysLock();
+  ltdcBgGetLayerI(ltdcp, cfgp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set background layer specifications.
+ * @details Sets the background layer (layer 1) specifications at once.
+ * @note    If the palette is unspecified, the layer palette is unmodified.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] cfgp      pointer to the layer specifications
+ *
+ * @iclass
+ */
+void ltdcBgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetLayerI");
+
+  if (cfgp == NULL)
+    cfgp = &ltdc_default_laycfg;
+
+  chDbgCheck((cfgp->pal_colors == NULL) == (cfgp->pal_length == 0),
+             "ltdcBgSetLayerI");
+
+  ltdcBgSetFrameI(ltdcp, cfgp->frame);
+  ltdcBgSetWindowI(ltdcp, cfgp->window);
+  ltdcBgSetDefaultColorI(ltdcp, cfgp->def_color);
+  ltdcBgSetKeyingColorI(ltdcp, cfgp->key_color);
+  ltdcBgSetConstantAlphaI(ltdcp, cfgp->const_alpha);
+  ltdcBgSetBlendingFactorsI(ltdcp, cfgp->blending);
+
+  if (cfgp->pal_length > 0)
+    ltdcBgSetPaletteI(ltdcp, cfgp->pal_colors, cfgp->pal_length);
+
+  ltdcBgSetEnableFlagsI(ltdcp, cfgp->flags);
+}
+
+/**
+ * @brief   Set background layer specifications.
+ * @details Sets the background layer (layer 1) specifications at once.
+ * @note    If the palette is unspecified, the layer palette is unmodified.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] cfgp      pointer to the layer specifications
+ *
+ * @api
+ */
+void ltdcBgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+
+  chSysLock();
+  ltdcBgSetLayerI(ltdcp, cfgp);
+  chSysUnlock();
+}
+
+/** @} */
+
+/**
+ * @name    LTDC foreground layer (layer 2) methods
+ * @{
+ */
+
+/**
+ * @brief   Get foreground layer enabled flags.
+ * @details Returns all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled flags
+ *
+ * @iclass
+ */
+ltdc_flags_t ltdcFgGetEnableFlagsI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetEnableFlagsI");
+  (void)ltdcp;
+
+  return LTDC_Layer2->CR & LTDC_LEF_MASK;
+}
+
+/**
+ * @brief   Get foreground layer enabled flags.
+ * @details Returns all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled flags
+ *
+ * @api
+ */
+ltdc_flags_t ltdcFgGetEnableFlags(LTDCDriver *ltdcp) {
+
+  ltdc_flags_t flags;
+  chSysLock();
+  flags = ltdcFgGetEnableFlagsI(ltdcp);
+  chSysUnlock();
+  return flags;
+}
+
+/**
+ * @brief   Set foreground layer enabled flags.
+ * @details Sets all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] flags     enabled flags
+ *
+ * @iclass
+ */
+void ltdcFgSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetEnableFlagsI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR = (LTDC_Layer2->CR & ~LTDC_LEF_MASK) |
+                    ((uint32_t)flags & LTDC_LEF_MASK);
+}
+
+/**
+ * @brief   Set foreground layer enabled flags.
+ * @details Sets all the flags of the <tt>LTDC_LEF_*</tt> group at once.
+ *          Targeting the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] flags     enabled flags
+ *
+ * @api
+ */
+void ltdcFgSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags) {
+
+  chSysLock();
+  ltdcFgSetEnableFlagsI(ltdcp, flags);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Foreground layer enabled.
+ * @details Tells whether the foreground layer (layer 2) is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcFgIsEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgIsEnabledI");
+  (void)ltdcp;
+
+  return (LTDC_Layer2->CR & ~LTDC_LxCR_LEN) != 0;
+}
+
+/**
+ * @brief   Foreground layer enabled.
+ * @details Tells whether the foreground layer (layer 2) is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @api
+ */
+bool_t ltdcFgIsEnabled(LTDCDriver *ltdcp) {
+
+  bool_t enabled;
+  chSysLock();
+  enabled = ltdcFgIsEnabledI(ltdcp);
+  chSysUnlock();
+  return enabled;
+}
+
+/**
+ * @brief   Foreground layer enable.
+ * @details Enables the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgEnableI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgEnableI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR |= LTDC_LxCR_LEN;
+}
+
+/**
+ * @brief   Foreground layer enable.
+ * @details Enables the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgEnable(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgEnableI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Foreground layer disable.
+ * @details Disables the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgDisableI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgDisableI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR &= ~LTDC_LxCR_LEN;
+}
+
+/**
+ * @brief   Foreground layer disable.
+ * @details Disables the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgDisable(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgDisableI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Foreground layer palette enabled.
+ * @details Tells whether the foreground layer (layer 2) palette (color lookup
+ *          table) is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcFgIsPaletteEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgIsPaletteEnabledI");
+  (void)ltdcp;
+
+  return (LTDC_Layer2->CR & ~LTDC_LxCR_CLUTEN) != 0;
+}
+
+/**
+ * @brief   Foreground layer palette enabled.
+ * @details Tells whether the foreground layer (layer 2) palette (color lookup
+ *          table) is enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @api
+ */
+bool_t ltdcFgIsPaletteEnabled(LTDCDriver *ltdcp) {
+
+  bool_t enabled;
+  chSysLock();
+  enabled = ltdcFgIsPaletteEnabledI(ltdcp);
+  chSysUnlock();
+  return enabled;
+}
+
+/**
+ * @brief   Enable foreground layer palette.
+ * @details Enables the palette (color lookup table) of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgEnablePaletteI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgEnablePaletteI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR |= LTDC_LxCR_CLUTEN;
+}
+
+/**
+ * @brief   Enable foreground layer palette.
+ * @details Enables the palette (color lookup table) of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgEnablePalette(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgEnablePaletteI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Disable foreground layer palette.
+ * @details Disables the palette (color lookup table) of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgDisablePaletteI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgDisablePaletteI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR &= ~LTDC_LxCR_CLUTEN;
+}
+
+/**
+ * @brief   Disable foreground layer palette.
+ * @details Disables the palette (color lookup table) of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgDisablePalette(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgDisablePaletteI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set foreground layer palette color.
+ * @details Sets the color of a palette (color lookup table) slot to the
+ *          foreground layer (layer 2).
+ * @pre     The layer must be disabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] slot      palette slot
+ * @param[in] c         color, RGB-888
+ *
+ * @iclass
+ */
+void ltdcFgSetPaletteColorI(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetPaletteColorI");
+  chDbgAssert(!ltdcFgIsEnabledI(ltdcp),
+              "ltdcFgSetPaletteColorI(), #1", "invalid state")
+  (void)ltdcp;
+
+  LTDC_Layer2->CLUTWR = ((uint32_t)slot << 24) | (c & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set foreground layer palette color.
+ * @details Sets the color of a palette (color lookup table) slot to the
+ *          foreground layer (layer 2).
+ * @pre     The layer must be disabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] slot      palette slot
+ * @param[in] c         color, RGB-888
+ *
+ * @api
+ */
+void ltdcFgSetPaletteColor(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c) {
+
+  chSysLock();
+  ltdcFgSetPaletteColorI(ltdcp, slot, c);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set foreground layer palette.
+ * @details Sets the entire palette color (color lookup table) slot.
+ * @pre     The layer must be disabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] colors    array of palette colors, RGB-888
+ * @param[in] length    number of palette colors
+ *
+ * @iclass
+ */
+void ltdcFgSetPaletteI(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                       uint16_t length) {
+
+  uint16_t i;
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetPaletteI");
+  chDbgCheck((colors == NULL) == (length == 0), "ltdcFgSetPaletteI");
+  chDbgAssert(length <= LTDC_MAX_PALETTE_LENGTH,
+              "ltdcFgSetPaletteI(), #1", "outside range");
+  chDbgAssert(!ltdcFgIsEnabledI(ltdcp),
+              "ltdcFgSetPaletteI(), #2", "invalid state")
+  (void)ltdcp;
+
+  for (i = 0; i < length; ++i)
+    LTDC_Layer2->CLUTWR = ((uint32_t)i << 24) | (colors[i] & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set foreground layer palette.
+ * @details Sets the entire palette color (color lookup table) slot.
+ * @pre     The layer must be disabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] colors    array of palette colors, RGB-888
+ * @param[in] length    number of palette colors
+ *
+ * @api
+ */
+void ltdcFgSetPalette(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                      uint16_t length) {
+
+  chSysLock();
+  ltdcFgSetPaletteI(ltdcp, colors, length);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer pixel format.
+ * @details Gets the pixel format of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              pixel format
+ *
+ * @iclass
+ */
+ltdc_pixfmt_t ltdcFgGetPixelFormatI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetPixelFormatI");
+  (void)ltdcp;
+
+  return (ltdc_pixfmt_t)(LTDC_Layer2->PFCR & LTDC_LxPFCR_PF);
+}
+
+/**
+ * @brief   Get foreground layer pixel format.
+ * @details Gets the pixel format of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              pixel format
+ *
+ * @api
+ */
+ltdc_pixfmt_t ltdcFgGetPixelFormat(LTDCDriver *ltdcp) {
+
+  ltdc_pixfmt_t fmt;
+  chSysLock();
+  fmt = ltdcFgGetPixelFormatI(ltdcp);
+  chSysUnlock();
+  return fmt;
+}
+
+/**
+ * @brief   Set foreground layer pixel format.
+ * @details Sets the pixel format of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] fmt       pixel format
+ *
+ * @iclass
+ */
+void ltdcFgSetPixelFormatI(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetPixelFormatI");
+  chDbgAssert(fmt >= LTDC_MIN_PIXFMT_ID,
+              "ltdcFgSetPixelFormatI(), #2", "outside range");
+  chDbgAssert(fmt <= LTDC_MAX_PIXFMT_ID,
+              "ltdcFgSetPixelFormatI(), #3", "outside range");
+  (void)ltdcp;
+
+  LTDC_Layer2->PFCR = (LTDC_Layer2->PFCR & ~LTDC_LxPFCR_PF) |
+                      ((uint32_t)fmt & LTDC_LxPFCR_PF);
+}
+
+/**
+ * @brief   Set foreground layer pixel format.
+ * @details Sets the pixel format of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] fmt       pixel format
+ *
+ * @api
+ */
+void ltdcFgSetPixelFormat(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt) {
+
+  chSysLock();
+  ltdcFgSetPixelFormatI(ltdcp, fmt);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Foreground layer color keying enabled.
+ * @details Tells whether the foreground layer (layer 2) has color keying
+ *          enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
+ */
+bool_t ltdcFgIsKeyingEnabledI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgIsKeyingEnabledI");
+  (void)ltdcp;
+
+  return (LTDC_Layer2->CR & ~LTDC_LxCR_COLKEN) != 0;
+}
+
+/**
+ * @brief   Foreground layer color keying enabled.
+ * @details Tells whether the foreground layer (layer 2) has color keying
+ *          enabled.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              enabled
+ *
+ * @api
+ */
+bool_t ltdcFgIsKeyingEnabled(LTDCDriver *ltdcp) {
+
+  bool_t enabled;
+  chSysLock();
+  enabled = ltdcFgIsKeyingEnabledI(ltdcp);
+  chSysUnlock();
+  return enabled;
+}
+
+/**
+ * @brief   Enable foreground layer color keying.
+ * @details Enables color keying capabilities of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgEnableKeyingI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgEnableKeyingI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR |= LTDC_LxCR_COLKEN;
+}
+
+/**
+ * @brief   Enable foreground layer color keying.
+ * @details Enables color keying capabilities of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgEnableKeying(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgEnableKeyingI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Disable foreground layer color keying.
+ * @details Disables color keying capabilities of the foreground layer (layer
+ *          2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgDisableKeyingI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgDisableKeyingI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CR &= ~LTDC_LxCR_COLKEN;
+}
+
+/**
+ * @brief   Disable foreground layer color keying.
+ * @details Disables color keying capabilities of the foreground layer (layer
+ *          2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgDisableKeying(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgDisableKeyingI(ltdcp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer color key.
+ * @details Gets the color key of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              color key, RGB-888
+ *
+ * @iclass
+ */
+ltdc_color_t ltdcFgGetKeyingColorI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetKeyingColorI");
+  (void)ltdcp;
+
+  return (ltdc_color_t)(LTDC_Layer2->CKCR & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Get foreground layer color key.
+ * @details Gets the color key of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              color key, RGB-888
+ *
+ * @api
+ */
+ltdc_color_t ltdcFgGetKeyingColor(LTDCDriver *ltdcp) {
+
+  ltdc_color_t color;
+  chSysLock();
+  color = ltdcFgGetKeyingColorI(ltdcp);
+  chSysUnlock();
+  return color;
+}
+
+/**
+ * @brief   Set foreground layer color key.
+ * @details Sets the color key of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] c         color key, RGB-888
+ *
+ * @iclass
+ */
+void ltdcFgSetKeyingColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetKeyingColorI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CKCR = (LTDC_Layer2->CKCR & ~0x00FFFFFF) |
+                      ((uint32_t)c & 0x00FFFFFF);
+}
+
+/**
+ * @brief   Set foreground layer color key.
+ * @details Sets the color key of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] c         color key, RGB-888
+ *
+ * @api
+ */
+void ltdcFgSetKeyingColor(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chSysLock();
+  ltdcFgSetKeyingColorI(ltdcp, c);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer constant alpha.
+ * @details Gets the constant alpha component of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              constant alpha component, A-8
+ *
+ * @iclass
+ */
+uint8_t ltdcFgGetConstantAlphaI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetConstantAlphaI");
+  (void)ltdcp;
+
+  return (uint8_t)(LTDC_Layer2->CACR & LTDC_LxCACR_CONSTA);
+}
+
+/**
+ * @brief   Get foreground layer constant alpha.
+ * @details Gets the constant alpha component of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              constant alpha component, A-8
+ *
+ * @api
+ */
+uint8_t ltdcFgGetConstantAlpha(LTDCDriver *ltdcp) {
+
+  uint8_t a;
+  chSysLock();
+  a = ltdcFgGetConstantAlphaI(ltdcp);
+  chSysUnlock();
+  return a;
+}
+
+/**
+ * @brief   Set foreground layer constant alpha.
+ * @details Sets the constant alpha component of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] a         constant alpha component, A-8
+ *
+ * @iclass
+ */
+void ltdcFgSetConstantAlphaI(LTDCDriver *ltdcp, uint8_t a) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetConstantAlphaI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CACR = (LTDC_Layer2->CACR & ~LTDC_LxCACR_CONSTA) |
+                      ((uint32_t)a & LTDC_LxCACR_CONSTA);
+}
+
+/**
+ * @brief   Set foreground layer constant alpha.
+ * @details Sets the constant alpha component of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] a         constant alpha component, A-8
+ *
+ * @api
+ */
+void ltdcFgSetConstantAlpha(LTDCDriver *ltdcp, uint8_t a) {
+
+  chSysLock();
+  ltdcFgSetConstantAlphaI(ltdcp, a);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer default color.
+ * @details Gets the default color of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              default color, RGB-888
+ *
+ * @iclass
+ */
+ltdc_color_t ltdcFgGetDefaultColorI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetDefaultColorI");
+  (void)ltdcp;
+
+  return (ltdc_color_t)LTDC_Layer2->DCCR;
+}
+
+/**
+ * @brief   Get foreground layer default color.
+ * @details Gets the default color of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              default color, RGB-888
+ *
+ * @api
+ */
+ltdc_color_t ltdcFgGetDefaultColor(LTDCDriver *ltdcp) {
+
+  ltdc_color_t color;
+  chSysLock();
+  color = ltdcFgGetDefaultColorI(ltdcp);
+  chSysUnlock();
+  return color;
+}
+
+/**
+ * @brief   Set foreground layer default color.
+ * @details Sets the default color of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] c         default color, RGB-888
+ *
+ * @iclass
+ */
+void ltdcFgSetDefaultColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetDefaultColorI");
+  (void)ltdcp;
+
+  LTDC_Layer2->DCCR = (uint32_t)c;
+}
+
+/**
+ * @brief   Set foreground layer default color.
+ * @details Sets the default color of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] c         default color, RGB-888
+ *
+ * @api
+ */
+void ltdcFgSetDefaultColor(LTDCDriver *ltdcp, ltdc_color_t c) {
+
+  chSysLock();
+  ltdcFgSetDefaultColorI(ltdcp, c);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer blending factors.
+ * @details Gets the blending factors of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              blending factors
+ *
+ * @iclass
+ */
+ltdc_blendf_t ltdcFgGetBlendingFactorsI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetBlendingFactorsI");
+  (void)ltdcp;
+
+  return (ltdc_blendf_t)(LTDC_Layer2->BFCR & LTDC_LxBFCR_BF);
+}
+
+/**
+ * @brief   Get foreground layer blending factors.
+ * @details Gets the blending factors of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              blending factors
+ *
+ * @api
+ */
+ltdc_blendf_t ltdcFgGetBlendingFactors(LTDCDriver *ltdcp) {
+
+  ltdc_blendf_t bf;
+  chSysLock();
+  bf = ltdcFgGetBlendingFactorsI(ltdcp);
+  chSysUnlock();
+  return bf;
+}
+
+/**
+ * @brief   Set foreground layer blending factors.
+ * @details Sets the blending factors of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] factors   blending factors
+ *
+ * @iclass
+ */
+void ltdcFgSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_blendf_t bf) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetBlendingFactorsI");
+  (void)ltdcp;
+
+  LTDC_Layer2->BFCR = (LTDC_Layer2->BFCR & ~LTDC_LxBFCR_BF) |
+                      ((uint32_t)bf & LTDC_LxBFCR_BF);
+}
+
+/**
+ * @brief   Set foreground layer blending factors.
+ * @details Sets the blending factors of the foreground layer.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] factors   blending factors
+ *
+ * @api
+ */
+void ltdcFgSetBlendingFactors(LTDCDriver *ltdcp, ltdc_blendf_t bf) {
+
+  chSysLock();
+  ltdcFgSetBlendingFactorsI(ltdcp, bf);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer window specs.
+ * @details Gets the window specifications of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] windowp  pointer to the window specifications
+ *
+ * @iclass
+ */
+void ltdcFgGetWindowI(LTDCDriver *ltdcp, ltdc_window_t *windowp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetWindowI");
+  chDbgCheck(windowp != NULL, "ltdcFgGetWindowI");
+  (void)ltdcp;
+
+  windowp->hstart =
+    (uint16_t)((LTDC_Layer2->WHPCR & LTDC_LxWHPCR_WHSTPOS) >>  0);
+  windowp->hstop =
+    (uint16_t)((LTDC_Layer2->WHPCR & LTDC_LxWHPCR_WHSPPOS) >> 16);
+  windowp->vstart =
+    (uint16_t)((LTDC_Layer2->WVPCR & LTDC_LxWVPCR_WVSTPOS) >>  0);
+  windowp->vstop =
+    (uint16_t)((LTDC_Layer2->WVPCR & LTDC_LxWVPCR_WVSPPOS) >> 16);
+}
+
+/**
+ * @brief   Get foreground layer window specs.
+ * @details Gets the window specifications of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] windowp  pointer to the window specifications
+ *
+ * @api
+ */
+void ltdcFgGetWindow(LTDCDriver *ltdcp, ltdc_window_t *windowp) {
+
+  chSysLock();
+  ltdcFgGetWindowI(ltdcp, windowp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set foreground layer window specs.
+ * @details Sets the window specifications of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] windowp   pointer to the window specifications
+ *
+ * @iclass
+ */
+void ltdcFgSetWindowI(LTDCDriver *ltdcp, const ltdc_window_t *windowp) {
+
+  uint32_t start, stop;
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetWindowI");
+  chDbgCheck(windowp != NULL, "ltdcFgSetWindowI");
+  (void)ltdcp;
+
+  chDbgAssert(windowp->hstop < ltdcp->config->screen_width,
+              "ltdcFgSetWindowI(), #11", "outside range");
+  chDbgAssert(windowp->vstop < ltdcp->config->screen_height,
+              "ltdcFgSetWindowI(), #12", "outside range");
+
+  /* Horizontal boundaries.*/
+  start = (uint32_t)windowp->hstart + ltdcp->active_window.hstart;
+  stop  = (uint32_t)windowp->hstop  + ltdcp->active_window.hstart;
+
+  chDbgAssert(start >= ltdcp->active_window.hstart,
+              "ltdcFgSetWindowI(), #21", "outside range");
+  chDbgAssert(stop <= ltdcp->active_window.hstop,
+              "ltdcFgSetWindowI(), #22", "outside range");
+
+  LTDC_Layer2->WHPCR = ((start <<  0) & LTDC_LxWHPCR_WHSTPOS) |
+                       ((stop  << 16) & LTDC_LxWHPCR_WHSPPOS);
+
+  /* Vertical boundaries.*/
+  start = (uint32_t)windowp->vstart + ltdcp->active_window.vstart;
+  stop  = (uint32_t)windowp->vstop  + ltdcp->active_window.vstart;
+
+  chDbgAssert(start >= ltdcp->active_window.vstart,
+              "ltdcFgSetWindowI(), #31", "outside range");
+  chDbgAssert(stop <= ltdcp->active_window.vstop,
+              "ltdcFgSetWindowI(), #32", "outside range");
+
+  LTDC_Layer2->WVPCR = ((start <<  0) & LTDC_LxWVPCR_WVSTPOS) |
+                       ((stop  << 16) & LTDC_LxWVPCR_WVSPPOS);
+}
+
+/**
+ * @brief   Set foreground layer window specs.
+ * @details Sets the window specifications of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] windowp   pointer to the window specifications
+ *
+ * @api
+ */
+void ltdcFgSetWindow(LTDCDriver *ltdcp, const ltdc_window_t *windowp) {
+
+  chSysLock();
+  ltdcFgSetWindowI(ltdcp, windowp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set foreground layer window as invalid.
+ * @details Sets the window specifications of the foreground layer (layer 2)
+ *          so that the window is pixel sized at the screen origin.
+ * @note    Useful before reconfiguring the frame specifications of the layer,
+ *          to avoid errors.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @iclass
+ */
+void ltdcFgSetInvalidWindowI(LTDCDriver *ltdcp) {
+
+  ltdcFgSetWindowI(ltdcp, &ltdc_invalid_window);
+}
+
+/**
+ * @brief   Set foreground layer window as invalid.
+ * @details Sets the window specifications of the foreground layer (layer 2)
+ *          so that the window is pixel sized at the screen origin.
+ * @note    Useful before reconfiguring the frame specifications of the layer,
+ *          to avoid errors.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @api
+ */
+void ltdcFgSetInvalidWindow(LTDCDriver *ltdcp) {
+
+  chSysLock();
+  ltdcFgSetWindowI(ltdcp, &ltdc_invalid_window);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer frame buffer specs.
+ * @details Gets the frame buffer specifications of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] framep   pointer to the frame buffer specifications
+ *
+ * @iclass
+ */
+void ltdcFgGetFrameI(LTDCDriver *ltdcp, ltdc_frame_t *framep) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetFrameI");
+  chDbgCheck(framep != NULL, "ltdcFgGetFrameI");
+
+  framep->bufferp = (void *)(LTDC_Layer2->CFBAR & LTDC_LxCFBAR_CFBADD);
+  framep->pitch   = (size_t)((LTDC_Layer2->CFBLR & LTDC_LxCFBLR_CFBP) >> 16);
+  framep->width   = (uint16_t)(((LTDC_Layer2->CFBLR & LTDC_LxCFBLR_CFBLL) - 3) /
+                    ltdcBytesPerPixel(ltdcFgGetPixelFormatI(ltdcp)));
+  framep->height  = (uint16_t)(LTDC_Layer2->CFBLNR & LTDC_LxCFBLNR_CFBLNBR);
+}
+
+/**
+ * @brief   Get foreground layer frame buffer specs.
+ * @details Gets the frame buffer specifications of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] framep   pointer to the frame buffer specifications
+ *
+ * @api
+ */
+void ltdcFgGetFrame(LTDCDriver *ltdcp, ltdc_frame_t *framep) {
+
+  chSysLock();
+  ltdcFgGetFrameI(ltdcp, framep);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set foreground layer frame buffer specs.
+ * @details Sets the frame buffer specifications of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] framep    pointer to the frame buffer specifications
+ *
+ * @iclass
+ */
+void ltdcFgSetFrameI(LTDCDriver *ltdcp, const ltdc_frame_t *framep) {
+
+  size_t linesize;
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetFrameI");
+  chDbgCheck(framep != NULL, "ltdcFgSetFrameI");
+
+  ltdcFgSetPixelFormatI(ltdcp, framep->fmt);
+
+  linesize = ltdcBytesPerPixel(framep->fmt) * framep->width;
+
+  chDbgAssert(framep->width  <= ltdcp->config->screen_width,
+              "ltdcFgSetFrameI(), #1", "outside range");
+  chDbgAssert(framep->height <= ltdcp->config->screen_height,
+              "ltdcFgSetFrameI(), #2", "outside range");
+  chDbgAssert(linesize >= LTDC_MIN_FRAME_WIDTH_BYTES,
+              "ltdcFgSetFrameI(), #3", "outside range");
+  chDbgAssert(linesize <= LTDC_MAX_FRAME_WIDTH_BYTES,
+              "ltdcFgSetFrameI(), #4", "outside range");
+  chDbgAssert(framep->height >= LTDC_MIN_FRAME_HEIGHT_LINES,
+              "ltdcFgSetFrameI(), #5", "outside range");
+  chDbgAssert(framep->height <= LTDC_MAX_FRAME_HEIGHT_LINES,
+              "ltdcFgSetFrameI(), #6", "outside range");
+  chDbgAssert(framep->pitch  >= linesize,
+              "ltdcFgSetFrameI(), #7", "outside range");
+
+  LTDC_Layer2->CFBAR = (uint32_t)framep->bufferp & LTDC_LxCFBAR_CFBADD;
+  LTDC_Layer2->CFBLR = ((((uint32_t)framep->pitch << 16) & LTDC_LxCFBLR_CFBP) |
+                       ((linesize + 3) & LTDC_LxCFBLR_CFBLL));
+  LTDC_Layer2->CFBLNR = (uint32_t)framep->height & LTDC_LxCFBLNR_CFBLNBR;
+}
+
+/**
+ * @brief   Set foreground layer frame buffer specs.
+ * @details Sets the frame buffer specifications of the foreground layer
+ *          (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] framep    pointer to the frame buffer specifications
+ *
+ * @api
+ */
+void ltdcFgSetFrame(LTDCDriver *ltdcp, const ltdc_frame_t *framep) {
+
+  chSysLock();
+  ltdcFgSetFrameI(ltdcp, framep);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer frame buffer address.
+ * @details Gets the frame buffer address of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              frame buffer address
+ *
+ * @iclass
+ */
+void *ltdcFgGetFrameAddressI(LTDCDriver *ltdcp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetFrameAddressI");
+  (void)ltdcp;
+
+  return (void *)LTDC_Layer2->CFBAR;
+}
+
+/**
+ * @brief   Get foreground layer frame buffer address.
+ * @details Gets the frame buffer address of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ *
+ * @return              frame buffer address
+ *
+ * @api
+ */
+void *ltdcFgGetFrameAddress(LTDCDriver *ltdcp) {
+
+  void *bufferp;
+  chSysLock();
+  bufferp = ltdcFgGetFrameAddressI(ltdcp);
+  chSysUnlock();
+  return bufferp;
+}
+
+/**
+ * @brief   Set foreground layer frame buffer address.
+ * @details Sets the frame buffer address of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] bufferp   frame buffer address
+ *
+ * @iclass
+ */
+void ltdcFgSetFrameAddressI(LTDCDriver *ltdcp, void *bufferp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetFrameAddressI");
+  (void)ltdcp;
+
+  LTDC_Layer2->CFBAR = (uint32_t)bufferp;
+}
+
+/**
+ * @brief   Set foreground layer frame buffer address.
+ * @details Sets the frame buffer address of the foreground layer (layer 2).
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] bufferp   frame buffer address
+ *
+ * @api
+ */
+void ltdcFgSetFrameAddress(LTDCDriver *ltdcp, void *bufferp) {
+
+  chSysLock();
+  ltdcFgSetFrameAddressI(ltdcp, bufferp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Get foreground layer specifications.
+ * @details Gets the foreground layer (layer 2) specifications at once.
+ * @note    If palette specifications cannot be retrieved, they are set to
+ *          @p NULL. This is not an error.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] cfgp     pointer to the layer specifications
+ *
+ * @iclass
+ */
+void ltdcFgGetLayerI(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgGetLayerI");
+  chDbgCheck(cfgp != NULL, "ltdcFgGetLayerI");
+
+  ltdcFgGetFrameI(ltdcp, (ltdc_frame_t *)cfgp->frame);
+  ltdcFgGetWindowI(ltdcp, (ltdc_window_t *)cfgp->window);
+  cfgp->def_color = ltdcFgGetDefaultColorI(ltdcp);
+  cfgp->key_color = ltdcFgGetKeyingColorI(ltdcp);
+  cfgp->const_alpha = ltdcFgGetConstantAlphaI(ltdcp);
+  cfgp->blending = ltdcFgGetBlendingFactorsI(ltdcp);
+
+  cfgp->pal_colors = NULL;
+  cfgp->pal_length = 0;
+
+  cfgp->flags = ltdcFgGetEnableFlagsI(ltdcp);
+}
+
+/**
+ * @brief   Get foreground layer specifications.
+ * @details Gets the foreground layer (layer 2) specifications at once.
+ * @note    If palette specifications cannot be retrieved, they are set to
+ *          @p NULL. This is not an error.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[out] cfgp     pointer to the layer specifications
+ *
+ * @api
+ */
+void ltdcFgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp) {
+
+  chSysLock();
+  ltdcFgGetLayerI(ltdcp, cfgp);
+  chSysUnlock();
+}
+
+/**
+ * @brief   Set foreground layer specifications.
+ * @details Sets the foreground layer (layer 2) specifications at once.
+ * @note    If the palette is unspecified, the layer palette is unmodified.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] cfgp      pointer to the layer specifications
+ *
+ * @iclass
+ */
+void ltdcFgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetLayerI");
+
+  if (cfgp == NULL)
+    cfgp = &ltdc_default_laycfg;
+
+  chDbgCheck((cfgp->pal_colors == NULL) == (cfgp->pal_length == 0),
+             "ltdcFgSetLayerI");
+
+  ltdcFgSetFrameI(ltdcp, cfgp->frame);
+  ltdcFgSetWindowI(ltdcp, cfgp->window);
+  ltdcFgSetDefaultColorI(ltdcp, cfgp->def_color);
+  ltdcFgSetKeyingColorI(ltdcp, cfgp->key_color);
+  ltdcFgSetConstantAlphaI(ltdcp, cfgp->const_alpha);
+  ltdcFgSetBlendingFactorsI(ltdcp, cfgp->blending);
+
+  if (cfgp->pal_length > 0)
+    ltdcFgSetPaletteI(ltdcp, cfgp->pal_colors, cfgp->pal_length);
+
+  ltdcFgSetEnableFlagsI(ltdcp, cfgp->flags);
+}
+
+/**
+ * @brief   Set foreground layer specifications.
+ * @details Sets the foreground layer (layer 2) specifications at once.
+ * @note    If the palette is unspecified, the layer palette is unmodified.
+ *
+ * @param[in] ltdcp     pointer to the @p LTDCDriver object
+ * @param[in] cfgp      pointer to the layer specifications
+ *
+ * @api
+ */
+void ltdcFgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+
+  chSysLock();
+  ltdcFgSetLayerI(ltdcp, cfgp);
+  chSysUnlock();
+}
+
+/** @} */
+
+/**
+ * @name    LTDC helper functions
+ */
 
 /**
  * @brief   Compute bits per pixel.
@@ -2225,7 +3758,8 @@ void ltdcLayerSetFrameAddress(LTDCDriver *ltdcp, ltdc_layerid_t layer,
  */
 size_t ltdcBitsPerPixel(ltdc_pixfmt_t fmt) {
 
-  chDbgAssert(fmt < 8, "ltdcBitsPerPixel(), #1", "invalid format");
+  chDbgAssert(fmt < LTDC_MAX_PIXFMT_ID,
+              "ltdcBitsPerPixel(), #1", "invalid format");
 
   return (size_t)ltdc_bpp[(unsigned)fmt];
 }
@@ -2349,6 +3883,8 @@ ltdc_color_t ltdcToARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt) {
     return 0;
   }
 }
+
+/** @} */
 
 #endif /* LTDC_NEED_CONVERSIONS */
 

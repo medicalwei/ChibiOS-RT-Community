@@ -17,7 +17,6 @@
 /**
  * @file    stm32_ltdc.h
  * @brief   LCD-TFT Controller Driver.
- * @pre     This driver needs a supported STM32 device.
  *
  * @addtogroup ltdc
  * @{
@@ -40,11 +39,11 @@
 /*===========================================================================*/
 
 /**
- * @name    LTDC layers
+ * @name    LTDC layer identifiers
  * @{
  */
-#define LTDC_L1                 0           /**< Layer 1.*/
-#define LTDC_L2                 1           /**< Layer 2.*/
+#define LTDC_BG                 0           /**< Background layer (Layer 1).*/
+#define LTDC_FG                 1           /**< Foreground layer (Layer 2).*/
 /** @} */
 
 /**
@@ -179,6 +178,8 @@
 #define LTDC_MIN_PIXFMT_ID              0
 #define LTDC_MAX_PIXFMT_ID              7
 
+#define LTDC_MAX_PALETTE_LENGTH         256
+
 /** @} */
 
 /**
@@ -238,14 +239,31 @@
 #define STM32_LTDC_ER_IRQ_PRIORITY          11
 #endif
 
-/** @} */
+/**
+ * @brief   Enables synchronous APIs.
+ * @note    Disabling this option saves both code and data space.
+ */
+#if !defined(LTDC_USE_WAIT) || defined(__DOXYGEN__)
+#define LTDC_USE_WAIT                       TRUE
+#endif
+
+/**
+ * @brief   Enables the @p ltdcAcquireBus() and @p ltdcReleaseBus() APIs.
+ * @note    Disabling this option saves both code and data space.
+ */
+#if !defined(LTDC_USE_MUTUAL_EXCLUSION) || defined(__DOXYGEN__)
+#define LTDC_USE_MUTUAL_EXCLUSION           TRUE// FIXME
+#endif
 
 /**
  * @brief   Provides software color conversion functions.
+ * @note    Disabling this option saves both code and data space.
  */
 #if !defined(LTDC_NEED_CONVERSIONS) || defined(__DOXYGEN__)
-#define LTDC_NEED_CONVERSIONS               FALSE
+#define LTDC_NEED_CONVERSIONS               TRUE//FIXME
 #endif
+
+/** @} */
 
 /*===========================================================================*/
 /* Derived constants and error checks.                                       */
@@ -263,17 +281,22 @@
 #error "LTDC not present in the selected device"
 #endif
 
+#if LTDC_USE_MUTUAL_EXCLUSION && !CH_USE_MUTEXES && !CH_USE_SEMAPHORES
+#error "LTDC_USE_MUTUAL_EXCLUSION requires CH_USE_MUTEXES and/or CH_USE_SEMAPHORES"
+#endif
+
 /*===========================================================================*/
 /* Driver data structures and types.                                         */
 /*===========================================================================*/
 
 /* Complex types forwarding.*/
-typedef union ltdc_coloralias_t_ ltdc_coloralias_t;
-typedef struct ltdc_window_t_ ltdc_window_t;
-typedef struct ltdc_frame_t_ ltdc_frame_t;
-typedef struct LTDCConfig_ LTDCConfig;
-typedef enum ltdc_state_t_ ltdc_state_t;
-typedef struct LTDCDriver_ LTDCDriver;
+typedef union ltdc_coloralias_t ltdc_coloralias_t;
+typedef struct ltdc_window_t ltdc_window_t;
+typedef struct ltdc_frame_t ltdc_frame_t;
+typedef struct ltdc_laycfg_t ltdc_laycfg_t;
+typedef struct LTDCConfig LTDCConfig;
+typedef enum ltdc_state_t ltdc_state_t;
+typedef struct LTDCDriver LTDCDriver;
 
 /**
  * @name    LTDC Data types
@@ -291,7 +314,7 @@ typedef uint32_t ltdc_color_t;
  *          Padding fields prefixed with <tt>'x'</tt>, which should be clear
  *          (all 0) before compression and set (all 1) after expansion.
  */
-typedef union ltdc_coloralias_t_ {
+typedef union ltdc_coloralias_t {
   struct {
     unsigned  b     :  8;
     unsigned  g     :  8;
@@ -376,7 +399,7 @@ typedef void (*ltdc_isrcb_t)(LTDCDriver *ltdcp);
 /**
  * @brief   LTDC window specifications.
  */
-typedef struct ltdc_window_t_ {
+typedef struct ltdc_window_t {
   uint16_t      hstart;             /**< Horizontal start pixel (left).*/
   uint16_t      hstop;              /**< Horizontal stop pixel (right).*/
   uint16_t      vstart;             /**< Vertical start pixel (top).*/
@@ -386,7 +409,7 @@ typedef struct ltdc_window_t_ {
 /**
  * @brief   LTDC frame specifications.
  */
-typedef struct ltdc_frame_t_ {
+typedef struct ltdc_frame_t {
   void          *bufferp;           /**< Frame buffer address.*/
   uint16_t      width;              /**< Frame width, in pixels.*/
   uint16_t      height;             /**< Frame height, in pixels.*/
@@ -402,14 +425,14 @@ typedef uint8_t ltdc_flags_t;
 /**
  * @brief   LTDC startup layer configuration.
  */
-typedef struct ltdc_layercfg_t_ {
+typedef struct ltdc_laycfg_t {
   const ltdc_frame_t  *frame;       /**< Frame buffer specifications.*/
   const ltdc_window_t *window;      /**< Window specifications.*/
   ltdc_color_t        def_color;    /**< Default color, ARGB-8888.*/
+  uint8_t             const_alpha;  /**< Constant alpha factor.*/
   ltdc_color_t        key_color;    /**< Color key.*/
   const ltdc_color_t  *pal_colors;  /**< Palette colors, or @p NULL.*/
   uint16_t            pal_length;   /**< Palette length, or @p 0.*/
-  uint8_t             const_alpha;  /**< Constant alpha factor.*/
   ltdc_blendf_t       blending;     /**< Blending factors.*/
   ltdc_flags_t        flags;        /**< Layer configuration flags.*/
 } ltdc_laycfg_t;
@@ -417,7 +440,7 @@ typedef struct ltdc_layercfg_t_ {
 /**
  * @brief   LTDC driver configuration.
  */
-typedef struct LTDCConfig_ {
+typedef struct LTDCConfig {
   /* Display specifications.*/
   uint16_t      screen_width;       /**< Screen pixel width.*/
   uint16_t      screen_height;      /**< Screen pixel height.*/
@@ -430,20 +453,21 @@ typedef struct LTDCConfig_ {
   ltdc_flags_t  flags;              /**< Driver configuration flags.*/
 
   /* ISR callbacks.*/
-  ltdc_isrcb_t  line_isrcb;         /**< Line Interrupt ISR, or @p NULL.*/
-  ltdc_isrcb_t  rr_isrcb;           /**< Register Reload ISR, or @p NULL.*/
-  ltdc_isrcb_t  fuerr_isrcb;        /**< FIFO Underrun ISR, or @p NULL.*/
-  ltdc_isrcb_t  terr_isrcb;         /**< Transfer Error ISR, or @p NULL.*/
+  ltdc_isrcb_t  line_isr;           /**< Line Interrupt ISR, or @p NULL.*/
+  ltdc_isrcb_t  rr_isr;             /**< Register Reload ISR, or @p NULL.*/
+  ltdc_isrcb_t  fuerr_isr;          /**< FIFO Underrun ISR, or @p NULL.*/
+  ltdc_isrcb_t  terr_isr;           /**< Transfer Error ISR, or @p NULL.*/
 
   /* Layer and color settings.*/
-  ltdc_color_t  bg_color;           /**< Background color, RGB-888.*/
-  const ltdc_laycfg_t *laycfgs[2];  /**< Layer configurations, or @p NULL.*/
+  ltdc_color_t  clear_color;        /**< Clear screen color, RGB-888.*/
+  const ltdc_laycfg_t *bg_laycfg;   /**< Background layer specs, or @p NULL.*/
+  const ltdc_laycfg_t *fg_laycfg;   /**< Foreground layer specs, or @p NULL.*/
 } LTDCConfig;
 
 /**
  * @brief   LTDC driver state.
  */
-typedef enum ltdc_state_t_ {
+typedef enum ltdc_state_t {
   LTDC_UNINIT   = 0,                /**< Not initialized.*/
   LTDC_STOP     = 1,                /**< Stopped.*/
   LTDC_READY    = 2,                /**< Ready.*/
@@ -453,12 +477,24 @@ typedef enum ltdc_state_t_ {
 /**
  * @brief   LTDC driver.
  */
-typedef struct LTDCDriver_ {
+typedef struct LTDCDriver {
   ltdc_state_t      state;          /**< Driver state.*/
   const LTDCConfig  *config;        /**< Driver configuration.*/
 
   /* Handy computations.*/
   ltdc_window_t     active_window;  /**< Active window coordinates.*/
+
+  /* Multithreading stuff.*/
+#if LTDC_USE_WAIT || defined(__DOXYGEN__)
+  Thread            *thread;        /**< Waiting thread.*/
+#endif /* LTDC_USE_WAIT */
+#if LTDC_USE_MUTUAL_EXCLUSION
+#if CH_USE_MUTEXES
+  Mutex             lock;           /**< Multithreading lock.*/
+#elif CH_USE_SEMAPHORES
+  Semaphore         lock;           /**< Multithreading lock.*/
+#endif
+#endif /* LTDC_USE_MUTUAL_EXCLUSION */
 } LTDCDriver;
 
 /** @} */
@@ -499,21 +535,6 @@ typedef struct LTDCDriver_ {
 #define ltdcBytesPerPixel(fmt) \
   ((ltdcBitsPerPixel(fmt) + 7) >> 3)
 
-/**
- * TODO
- */
-#define ltdcReloadAndWaitI(ltdcp, immediate) \
-  { ltdcReloadI((ltdcp), (immediate)); \
-    ltdcWaitReloadI(ltdcp); }
-
-/**
- * TODO
- */
-#define ltdcReloadAndWait(ltdcp, immediate) \
-  { ltdcReload((ltdcp), (immediate)); \
-    ltdcWaitReload(ltdcp); }
-
-
 /*===========================================================================*/
 /* External declarations.                                                    */
 /*===========================================================================*/
@@ -523,139 +544,197 @@ extern LTDCDriver LTDCD1;
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+  /* Driver methods.*/
   void ltdcInit(void);
   void ltdcObjectInit(LTDCDriver *ltdcp);
   ltdc_state_t ltdcGetStateI(LTDCDriver *ltdcp);
   ltdc_state_t ltdcGetState(LTDCDriver *ltdcp);
   void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp);
   void ltdcStop(LTDCDriver *ltdcp);
+#if LTDC_USE_MUTUAL_EXCLUSION
+  void ltdcAcquireBusS(LTDCDriver *ltdcp);
+  void ltdcAcquireBus(LTDCDriver *ltdcp);
+  void ltdcReleaseBusS(LTDCDriver *ltdcp);
+  void ltdcReleaseBus(LTDCDriver *ltdcp);
+#endif /* LTDC_USE_MUTUAL_EXCLUSION */
 
+  /* Global methods.*/
   ltdc_flags_t ltdcGetEnableFlagsI(LTDCDriver *ltdcp);
-  void ltdcSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags);
-  bool_t ltdcIsReloadingI(LTDCDriver *ltdcp);
-  void ltdcReloadI(LTDCDriver *ltdcp, bool_t immediate);
-  void ltdcWaitReloadI(LTDCDriver *ltdcp);
-  bool_t ltdcIsDitheringEnabledI(LTDCDriver *ltdcp);
-  void ltdcEnableDitheringI(LTDCDriver *ltdcp);
-  void ltdcDisableDitheringI(LTDCDriver *ltdcp);
-  ltdc_color_t ltdcGetBackgroundColorI(LTDCDriver *ltdcp);
-  void ltdcSetBackgroundColorI(LTDCDriver *ltdcp, ltdc_color_t c);
-  uint16_t ltdcGetLineInterruptPosI(LTDCDriver *ltdcp);
-  void ltdcSetLineInterruptPosI(LTDCDriver *ltdcp, uint16_t pos);
-  void ltdcGetCurrentPosI(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp);
-
-  ltdc_flags_t ltdcLayerGetEnableFlagsI(LTDCDriver *ltdcp,
-                                        ltdc_layerid_t layer);
-  void ltdcLayerSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                ltdc_flags_t flags);
-  bool_t ltdcLayerIsEnabledI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerEnableI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerDisableI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  bool_t ltdcLayerIsPaletteEnabledI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerEnablePaletteI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerDisablePaletteI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetPaletteColorI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                 uint8_t slot, ltdc_color_t c);
-  void ltdcLayerSetPaletteI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                            const ltdc_color_t colors[], uint16_t length);
-  ltdc_pixfmt_t ltdcLayerGetPixelFormatI(LTDCDriver *ltdcp,
-                                         ltdc_layerid_t layer);
-  void ltdcLayerSetPixelFormatI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                ltdc_pixfmt_t fmt);
-  bool_t ltdcLayerIsKeyingEnabledI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerEnableKeyingI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerDisableKeyingI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  ltdc_color_t ltdcLayerGetKeyingColorI(LTDCDriver *ltdcp,
-                                        ltdc_layerid_t layer);
-  void ltdcLayerSetKeyingColorI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                ltdc_color_t c);
-  uint8_t ltdcLayerGetConstantAlphaI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetConstantAlphaI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                  uint8_t a);
-  ltdc_color_t ltdcLayerGetDefaultColorI(LTDCDriver *ltdcp,
-                                         ltdc_layerid_t layer);
-  void ltdcLayerSetDefaultColorI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                 ltdc_color_t c);
-  ltdc_blendf_t ltdcLayerGetBlendingFactorsI(LTDCDriver *ltdcp,
-                                             ltdc_layerid_t layer);
-  void ltdcLayerSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                    ltdc_blendf_t bf);
-  void ltdcLayerGetWindowI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                           ltdc_window_t *winp);
-  void ltdcLayerSetWindowI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                           const ltdc_window_t *winp);
-  void ltdcLayerSetInvalidWindowI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerGetFrameI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                          ltdc_frame_t *framep);
-  void ltdcLayerSetFrameI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                          const ltdc_frame_t *framep);
-  void *ltdcLayerGetFrameAddressI(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetFrameAddressI(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                 void *bufferp);
-
   ltdc_flags_t ltdcGetEnableFlags(LTDCDriver *ltdcp);
+  void ltdcSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags);
   void ltdcSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags);
+  bool_t ltdcIsReloadingI(LTDCDriver *ltdcp);
   bool_t ltdcIsReloading(LTDCDriver *ltdcp);
-  void ltdcReload(LTDCDriver *ltdcp, bool_t immediate);
+  void ltdcStartReloadI(LTDCDriver *ltdcp, bool_t immediately);
+  void ltdcStartReload(LTDCDriver *ltdcp, bool_t immediately);
+#if LTDC_USE_WAIT
+  void ltdcWaitReloadS(LTDCDriver *ltdcp);
   void ltdcWaitReload(LTDCDriver *ltdcp);
+  void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately);
+  void ltdcReload(LTDCDriver *ltdcp, bool_t immediately);
+#endif /* LTDC_USE_WAIT */
+  bool_t ltdcIsDitheringEnabledI(LTDCDriver *ltdcp);
   bool_t ltdcIsDitheringEnabled(LTDCDriver *ltdcp);
+  void ltdcEnableDitheringI(LTDCDriver *ltdcp);
   void ltdcEnableDithering(LTDCDriver *ltdcp);
+  void ltdcDisableDitheringI(LTDCDriver *ltdcp);
   void ltdcDisableDithering(LTDCDriver *ltdcp);
-  ltdc_color_t ltdcGetBackgroundColor(LTDCDriver *ltdcp);
-  void ltdcSetBackgroundColor(LTDCDriver *ltdcp, ltdc_color_t c);
+  ltdc_color_t ltdcGetClearColorI(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcGetClearColor(LTDCDriver *ltdcp);
+  void ltdcSetClearColorI(LTDCDriver *ltdcp, ltdc_color_t c);
+  void ltdcSetClearColor(LTDCDriver *ltdcp, ltdc_color_t c);
+  uint16_t ltdcGetLineInterruptPosI(LTDCDriver *ltdcp);
   uint16_t ltdcGetLineInterruptPos(LTDCDriver *ltdcp);
-  void ltdcSetLineInterruptPos(LTDCDriver *ltdcp, uint16_t pos);
+  void ltdcSetLineInterruptPosI(LTDCDriver *ltdcp, uint16_t line);
+  void ltdcSetLineInterruptPos(LTDCDriver *ltdcp, uint16_t line);
+  bool_t ltdcIsLineInterruptEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcIsLineInterruptEnabled(LTDCDriver *ltdcp);
+  void ltdcEnableLineInterruptI(LTDCDriver *ltdcp);
+  void ltdcEnableLineInterrupt(LTDCDriver *ltdcp);
+  void ltdcDisableLineInterruptI(LTDCDriver *ltdcp);
+  void ltdcDisableLineInterrupt(LTDCDriver *ltdcp);
+  void ltdcGetCurrentPosI(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp);
   void ltdcGetCurrentPos(LTDCDriver *ltdcp, uint16_t *xp, uint16_t *yp);
 
-  ltdc_flags_t ltdcLayerGetEnableFlags(LTDCDriver *ltdcp,
-                                       ltdc_layerid_t layer);
-  void ltdcLayerSetEnableFlags(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               ltdc_flags_t flags);
-  bool_t ltdcLayerIsEnabled(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerEnable(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerDisable(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  bool_t ltdcLayerIsPaletteEnabled(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerEnablePalette(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerDisablePalette(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetPaletteColor(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                uint8_t slot, ltdc_color_t c);
-  void ltdcLayerSetPalette(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                           const ltdc_color_t colors[], uint16_t length);
-  ltdc_pixfmt_t ltdcLayerGetPixelFormat(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetPixelFormat(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               ltdc_pixfmt_t fmt);
-  bool_t ltdcLayerIsKeyingEnabled(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerEnableKeying(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerDisableKeying(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  ltdc_color_t ltdcLayerGetKeyingColor(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetKeyingColor(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                               ltdc_color_t c);
-  uint8_t ltdcLayerGetConstantAlpha(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetConstantAlpha(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                 uint8_t a);
-  ltdc_color_t ltdcLayerGetDefaultColor(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetDefaultColor(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                ltdc_color_t c);
-  ltdc_blendf_t ltdcLayerGetBlendingFactors(LTDCDriver *ltdcp,
-                                            ltdc_layerid_t layer);
-  void ltdcLayerSetBlendingFactors(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                   ltdc_blendf_t bf);
-  void ltdcLayerGetWindow(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                          ltdc_window_t *winp);
-  void ltdcLayerSetWindow(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                          const ltdc_window_t *winp);
-  void ltdcLayerSetInvalidWindow(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerGetFrame(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                         ltdc_frame_t *framep);
-  void ltdcLayerSetFrame(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                         const ltdc_frame_t *framep);
-  void *ltdcLayerGetFrameAddress(LTDCDriver *ltdcp, ltdc_layerid_t layer);
-  void ltdcLayerSetFrameAddress(LTDCDriver *ltdcp, ltdc_layerid_t layer,
-                                void *bufferp);
+  /* Background layer methods.*/
+  ltdc_flags_t ltdcBgGetEnableFlagsI(LTDCDriver *ltdcp);
+  ltdc_flags_t ltdcBgGetEnableFlags(LTDCDriver *ltdcp);
+  void ltdcBgSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags);
+  void ltdcBgSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags);
+  bool_t ltdcBgIsEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcBgIsEnabled(LTDCDriver *ltdcp);
+  void ltdcBgEnableI(LTDCDriver *ltdcp);
+  void ltdcBgEnable(LTDCDriver *ltdcp);
+  void ltdcBgDisableI(LTDCDriver *ltdcp);
+  void ltdcBgDisable(LTDCDriver *ltdcp);
+  bool_t ltdcBgIsPaletteEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcBgIsPaletteEnabled(LTDCDriver *ltdcp);
+  void ltdcBgEnablePaletteI(LTDCDriver *ltdcp);
+  void ltdcBgEnablePalette(LTDCDriver *ltdcp);
+  void ltdcBgDisablePaletteI(LTDCDriver *ltdcp);
+  void ltdcBgDisablePalette(LTDCDriver *ltdcp);
+  void ltdcBgSetPaletteColorI(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c);
+  void ltdcBgSetPaletteColor(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c);
+  void ltdcBgSetPaletteI(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                         uint16_t length);
+  void ltdcBgSetPalette(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                        uint16_t length);
+  ltdc_pixfmt_t ltdcBgGetPixelFormatI(LTDCDriver *ltdcp);
+  ltdc_pixfmt_t ltdcBgGetPixelFormat(LTDCDriver *ltdcp);
+  void ltdcBgSetPixelFormatI(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt);
+  void ltdcBgSetPixelFormat(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt);
+  bool_t ltdcBgIsKeyingEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcBgIsKeyingEnabled(LTDCDriver *ltdcp);
+  void ltdcBgEnableKeyingI(LTDCDriver *ltdcp);
+  void ltdcBgEnableKeying(LTDCDriver *ltdcp);
+  void ltdcBgDisableKeyingI(LTDCDriver *ltdcp);
+  void ltdcBgDisableKeying(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcBgGetKeyingColorI(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcBgGetKeyingColor(LTDCDriver *ltdcp);
+  void ltdcBgSetKeyingColorI(LTDCDriver *ltdcp, ltdc_color_t c);
+  void ltdcBgSetKeyingColor(LTDCDriver *ltdcp, ltdc_color_t c);
+  uint8_t ltdcBgGetConstantAlphaI(LTDCDriver *ltdcp);
+  uint8_t ltdcBgGetConstantAlpha(LTDCDriver *ltdcp);
+  void ltdcBgSetConstantAlphaI(LTDCDriver *ltdcp, uint8_t a);
+  void ltdcBgSetConstantAlpha(LTDCDriver *ltdcp, uint8_t a);
+  ltdc_color_t ltdcBgGetDefaultColorI(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcBgGetDefaultColor(LTDCDriver *ltdcp);
+  void ltdcBgSetDefaultColorI(LTDCDriver *ltdcp, ltdc_color_t c);
+  void ltdcBgSetDefaultColor(LTDCDriver *ltdcp, ltdc_color_t c);
+  ltdc_blendf_t ltdcBgGetBlendingFactorsI(LTDCDriver *ltdcp);
+  ltdc_blendf_t ltdcBgGetBlendingFactors(LTDCDriver *ltdcp);
+  void ltdcBgSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_blendf_t bf);
+  void ltdcBgSetBlendingFactors(LTDCDriver *ltdcp, ltdc_blendf_t bf);
+  void ltdcBgGetWindowI(LTDCDriver *ltdcp, ltdc_window_t *windowp);
+  void ltdcBgGetWindow(LTDCDriver *ltdcp, ltdc_window_t *windowp);
+  void ltdcBgSetWindowI(LTDCDriver *ltdcp, const ltdc_window_t *windowp);
+  void ltdcBgSetWindow(LTDCDriver *ltdcp, const ltdc_window_t *windowp);
+  void ltdcBgSetInvalidWindowI(LTDCDriver *ltdcp);
+  void ltdcBgSetInvalidWindow(LTDCDriver *ltdcp);
+  void ltdcBgGetFrameI(LTDCDriver *ltdcp, ltdc_frame_t *framep);
+  void ltdcBgGetFrame(LTDCDriver *ltdcp, ltdc_frame_t *framep);
+  void ltdcBgSetFrameI(LTDCDriver *ltdcp, const ltdc_frame_t *framep);
+  void ltdcBgSetFrame(LTDCDriver *ltdcp, const ltdc_frame_t *framep);
+  void *ltdcBgGetFrameAddressI(LTDCDriver *ltdcp);
+  void *ltdcBgGetFrameAddress(LTDCDriver *ltdcp);
+  void ltdcBgSetFrameAddressI(LTDCDriver *ltdcp, void *bufferp);
+  void ltdcBgSetFrameAddress(LTDCDriver *ltdcp, void *bufferp);
+  void ltdcBgGetLayerI(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
+  void ltdcBgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
+  void ltdcBgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+  void ltdcBgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
 
+  /* Foreground layer methods.*/
+  ltdc_flags_t ltdcFgGetEnableFlagsI(LTDCDriver *ltdcp);
+  ltdc_flags_t ltdcFgGetEnableFlags(LTDCDriver *ltdcp);
+  void ltdcFgSetEnableFlagsI(LTDCDriver *ltdcp, ltdc_flags_t flags);
+  void ltdcFgSetEnableFlags(LTDCDriver *ltdcp, ltdc_flags_t flags);
+  bool_t ltdcFgIsEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcFgIsEnabled(LTDCDriver *ltdcp);
+  void ltdcFgEnableI(LTDCDriver *ltdcp);
+  void ltdcFgEnable(LTDCDriver *ltdcp);
+  void ltdcFgDisableI(LTDCDriver *ltdcp);
+  void ltdcFgDisable(LTDCDriver *ltdcp);
+  bool_t ltdcFgIsPaletteEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcFgIsPaletteEnabled(LTDCDriver *ltdcp);
+  void ltdcFgEnablePaletteI(LTDCDriver *ltdcp);
+  void ltdcFgEnablePalette(LTDCDriver *ltdcp);
+  void ltdcFgDisablePaletteI(LTDCDriver *ltdcp);
+  void ltdcFgDisablePalette(LTDCDriver *ltdcp);
+  void ltdcFgSetPaletteColorI(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c);
+  void ltdcFgSetPaletteColor(LTDCDriver *ltdcp, uint8_t slot, ltdc_color_t c);
+  void ltdcFgSetPaletteI(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                         uint16_t length);
+  void ltdcFgSetPalette(LTDCDriver *ltdcp, const ltdc_color_t colors[],
+                        uint16_t length);
+  ltdc_pixfmt_t ltdcFgGetPixelFormatI(LTDCDriver *ltdcp);
+  ltdc_pixfmt_t ltdcFgGetPixelFormat(LTDCDriver *ltdcp);
+  void ltdcFgSetPixelFormatI(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt);
+  void ltdcFgSetPixelFormat(LTDCDriver *ltdcp, ltdc_pixfmt_t fmt);
+  bool_t ltdcFgIsKeyingEnabledI(LTDCDriver *ltdcp);
+  bool_t ltdcFgIsKeyingEnabled(LTDCDriver *ltdcp);
+  void ltdcFgEnableKeyingI(LTDCDriver *ltdcp);
+  void ltdcFgEnableKeying(LTDCDriver *ltdcp);
+  void ltdcFgDisableKeyingI(LTDCDriver *ltdcp);
+  void ltdcFgDisableKeying(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcFgGetKeyingColorI(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcFgGetKeyingColor(LTDCDriver *ltdcp);
+  void ltdcFgSetKeyingColorI(LTDCDriver *ltdcp, ltdc_color_t c);
+  void ltdcFgSetKeyingColor(LTDCDriver *ltdcp, ltdc_color_t c);
+  uint8_t ltdcFgGetConstantAlphaI(LTDCDriver *ltdcp);
+  uint8_t ltdcFgGetConstantAlpha(LTDCDriver *ltdcp);
+  void ltdcFgSetConstantAlphaI(LTDCDriver *ltdcp, uint8_t a);
+  void ltdcFgSetConstantAlpha(LTDCDriver *ltdcp, uint8_t a);
+  ltdc_color_t ltdcFgGetDefaultColorI(LTDCDriver *ltdcp);
+  ltdc_color_t ltdcFgGetDefaultColor(LTDCDriver *ltdcp);
+  void ltdcFgSetDefaultColorI(LTDCDriver *ltdcp, ltdc_color_t c);
+  void ltdcFgSetDefaultColor(LTDCDriver *ltdcp, ltdc_color_t c);
+  ltdc_blendf_t ltdcFgGetBlendingFactorsI(LTDCDriver *ltdcp);
+  ltdc_blendf_t ltdcFgGetBlendingFactors(LTDCDriver *ltdcp);
+  void ltdcFgSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_blendf_t bf);
+  void ltdcFgSetBlendingFactors(LTDCDriver *ltdcp, ltdc_blendf_t bf);
+  void ltdcFgGetWindowI(LTDCDriver *ltdcp, ltdc_window_t *windowp);
+  void ltdcFgGetWindow(LTDCDriver *ltdcp, ltdc_window_t *windowp);
+  void ltdcFgSetWindowI(LTDCDriver *ltdcp, const ltdc_window_t *windowp);
+  void ltdcFgSetWindow(LTDCDriver *ltdcp, const ltdc_window_t *windowp);
+  void ltdcFgSetInvalidWindowI(LTDCDriver *ltdcp);
+  void ltdcFgSetInvalidWindow(LTDCDriver *ltdcp);
+  void ltdcFgGetFrameI(LTDCDriver *ltdcp, ltdc_frame_t *framep);
+  void ltdcFgGetFrame(LTDCDriver *ltdcp, ltdc_frame_t *framep);
+  void ltdcFgSetFrameI(LTDCDriver *ltdcp, const ltdc_frame_t *framep);
+  void ltdcFgSetFrame(LTDCDriver *ltdcp, const ltdc_frame_t *framep);
+  void *ltdcFgGetFrameAddressI(LTDCDriver *ltdcp);
+  void *ltdcFgGetFrameAddress(LTDCDriver *ltdcp);
+  void ltdcFgSetFrameAddressI(LTDCDriver *ltdcp, void *bufferp);
+  void ltdcFgSetFrameAddress(LTDCDriver *ltdcp, void *bufferp);
+  void ltdcFgGetLayerI(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
+  void ltdcFgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
+  void ltdcFgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+  void ltdcFgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+
+  /* Helper functions.*/
   size_t ltdcBitsPerPixel(ltdc_pixfmt_t fmt);
-#if LTDC_NEED_CONVERSIONS || defined(__DOXYGEN__)
+#if LTDC_USE_CONVERSIONS || defined(__DOXYGEN__)
   ltdc_color_t ltdcFromARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt);
   ltdc_color_t ltdcToARGB8888(ltdc_color_t c, ltdc_pixfmt_t fmt);
 #endif /* LTDC_NEED_CONVERSIONS */

@@ -91,10 +91,10 @@ static const ltdc_laycfg_t ltdc_laycfg1 = {
   &frame_specs1,
   &window_specs1,
   LTDC_COLOR_FUCHSIA,
+  0xFF,
   0x980088,
   wolf3d_palette,
   256,
-  0xFF,
   LTDC_BLEND_FIX1_FIX2,
   LTDC_LEF_ENABLE | LTDC_LEF_PALETTE
 };
@@ -119,10 +119,8 @@ static const LTDCConfig ltdc_cfg = {
 
   /* Color and layer settings.*/
   LTDC_COLOR_TEAL,
-  {
-    &ltdc_laycfg1,
-    NULL
-  }
+  &ltdc_laycfg1,
+  NULL
 };
 
 extern LTDCDriver LTDCD1;
@@ -165,7 +163,6 @@ static void initialize_lcd(void) {
 
   ili9341Select(lcdp);
 
-#if 1
   ili9341WriteCommand(lcdp, ILI9341_SET_FRAME_CTL_NORMAL);
   ili9341WriteByte(lcdp, 0x00);
   ili9341WriteByte(lcdp, 0x1B);
@@ -232,140 +229,6 @@ static void initialize_lcd(void) {
   ili9341WriteCommand(lcdp, ILI9341_SET_MEM);
   chThdSleepMilliseconds(10);
 
-#else
-  ili9341WriteCommand(lcdp, 0xCA);
-  ili9341WriteByte(lcdp, 0xC3);
-  ili9341WriteByte(lcdp, 0x08);
-  ili9341WriteByte(lcdp, 0x50);
-
-  ili9341WriteCommand(lcdp, 0xCF);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0xC1);
-  ili9341WriteByte(lcdp, 0x30);
-
-  ili9341WriteCommand(lcdp, 0xED);
-  ili9341WriteByte(lcdp, 0x64);
-  ili9341WriteByte(lcdp, 0x03);
-  ili9341WriteByte(lcdp, 0x12);
-  ili9341WriteByte(lcdp, 0x81);
-
-  ili9341WriteCommand(lcdp, 0xE8);
-  ili9341WriteByte(lcdp, 0x85);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x78);
-
-  ili9341WriteCommand(lcdp, 0xCB);
-  ili9341WriteByte(lcdp, 0x39);
-  ili9341WriteByte(lcdp, 0x2C);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x34);
-  ili9341WriteByte(lcdp, 0x02);
-
-  ili9341WriteCommand(lcdp, 0xF7);
-  ili9341WriteByte(lcdp, 0x20);
-
-  ili9341WriteCommand(lcdp, 0xEA);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-
-  ili9341WriteCommand(lcdp, 0xB1);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x1B);
-
-  ili9341WriteCommand(lcdp, 0xB6);
-  ili9341WriteByte(lcdp, 0x0A);
-  ili9341WriteByte(lcdp, 0xA2);
-
-  ili9341WriteCommand(lcdp, 0xC0);
-  ili9341WriteByte(lcdp, 0x10);
-
-  ili9341WriteCommand(lcdp, 0xC1);
-  ili9341WriteByte(lcdp, 0x10);
-
-  ili9341WriteCommand(lcdp, 0xC5);
-  ili9341WriteByte(lcdp, 0x45);
-  ili9341WriteByte(lcdp, 0x15);
-
-  ili9341WriteCommand(lcdp, 0xC7);
-  ili9341WriteByte(lcdp, 0x90);
-
-  ili9341WriteCommand(lcdp, 0x36);
-  ili9341WriteByte(lcdp, 0xC8);
-
-  ili9341WriteCommand(lcdp, 0xF2);
-  ili9341WriteByte(lcdp, 0x00);
-
-  ili9341WriteCommand(lcdp, 0xB0);
-  ili9341WriteByte(lcdp, 0xC2);
-
-  ili9341WriteCommand(lcdp, 0xB6);
-  ili9341WriteByte(lcdp, 0x0A);
-  ili9341WriteByte(lcdp, 0xA7);
-  ili9341WriteByte(lcdp, 0x27);
-  ili9341WriteByte(lcdp, 0x04);
-
-  ili9341WriteCommand(lcdp, 0x2A);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0xEF);
-
-  ili9341WriteCommand(lcdp, 0x2B);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x01);
-  ili9341WriteByte(lcdp, 0x3F);
-
-  ili9341WriteCommand(lcdp, 0xF6);
-  ili9341WriteByte(lcdp, 0x01);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x06);
-
-  ili9341WriteCommand(lcdp, 0x2C);
-  delay(200);
-
-  ili9341WriteCommand(lcdp, 0x26);
-  ili9341WriteByte(lcdp, 0x01);
-
-  ili9341WriteCommand(lcdp, 0xE0);
-  ili9341WriteByte(lcdp, 0x0F);
-  ili9341WriteByte(lcdp, 0x29);
-  ili9341WriteByte(lcdp, 0x24);
-  ili9341WriteByte(lcdp, 0x0C);
-  ili9341WriteByte(lcdp, 0x0E);
-  ili9341WriteByte(lcdp, 0x09);
-  ili9341WriteByte(lcdp, 0x4E);
-  ili9341WriteByte(lcdp, 0x78);
-  ili9341WriteByte(lcdp, 0x3C);
-  ili9341WriteByte(lcdp, 0x09);
-  ili9341WriteByte(lcdp, 0x13);
-  ili9341WriteByte(lcdp, 0x05);
-  ili9341WriteByte(lcdp, 0x17);
-  ili9341WriteByte(lcdp, 0x11);
-  ili9341WriteByte(lcdp, 0x00);
-
-  ili9341WriteCommand(lcdp, 0xE1);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x16);
-  ili9341WriteByte(lcdp, 0x1B);
-  ili9341WriteByte(lcdp, 0x04);
-  ili9341WriteByte(lcdp, 0x11);
-  ili9341WriteByte(lcdp, 0x07);
-  ili9341WriteByte(lcdp, 0x31);
-  ili9341WriteByte(lcdp, 0x33);
-  ili9341WriteByte(lcdp, 0x42);
-  ili9341WriteByte(lcdp, 0x05);
-  ili9341WriteByte(lcdp, 0x0C);
-  ili9341WriteByte(lcdp, 0x0A);
-  ili9341WriteByte(lcdp, 0x28);
-  ili9341WriteByte(lcdp, 0x2F);
-  ili9341WriteByte(lcdp, 0x0F);
-
-  ili9341WriteCommand(lcdp, 0x11);
-  delay(200);
-  ili9341WriteCommand(lcdp, 0x29);
-  ili9341WriteCommand(lcdp, 0x2C);
-#endif
   ili9341Unselect(lcdp);
 }
 
