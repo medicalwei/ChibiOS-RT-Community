@@ -39,14 +39,6 @@
 /*===========================================================================*/
 
 /**
- * @name    LTDC layer identifiers
- * @{
- */
-#define LTDC_BG                 0           /**< Background layer (Layer 1).*/
-#define LTDC_FG                 1           /**< Foreground layer (Layer 2).*/
-/** @} */
-
-/**
  * @name    LTDC enable flags
  */
 #define LTDC_EF_ENABLE          (1 <<  0)   /**< LTDC enabled.*/
@@ -568,8 +560,6 @@ extern "C" {
   void ltdcStartReloadI(LTDCDriver *ltdcp, bool_t immediately);
   void ltdcStartReload(LTDCDriver *ltdcp, bool_t immediately);
 #if LTDC_USE_WAIT
-  void ltdcWaitReloadS(LTDCDriver *ltdcp);
-  void ltdcWaitReload(LTDCDriver *ltdcp);
   void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately);
   void ltdcReload(LTDCDriver *ltdcp, bool_t immediately);
 #endif /* LTDC_USE_WAIT */

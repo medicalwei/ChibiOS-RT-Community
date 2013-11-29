@@ -158,13 +158,12 @@ CH_IRQ_HANDLER(LTDC_EV_IRQHandler) {
 
   /* Handle Register Reload ISR.*/
   if ((LTDC->ISR & LTDC_ISR_RRIF) && (LTDC->IER & LTDC_IER_RRIE)) {
-    chDbgAssert(ltdcp->config->rr_isr != NULL,
-                "LTDC_EV_IRQHandler(), #2", "invalid state");
-    ltdcp->config->rr_isr(ltdcp);
+    if (ltdcp->config->rr_isr != NULL)
+      ltdcp->config->rr_isr(ltdcp);
 
     chSysLockFromIsr();
     chDbgAssert(ltdcp->state == LTDC_ACTIVE,
-                "LTDC_EV_IRQHandler(), #3", "invalid state");
+                "LTDC_EV_IRQHandler(), #2", "invalid state");
 #if LTDC_USE_WAIT
     /* Wake the waiting thread up.*/
     if (ltdcp->thread != NULL) {
@@ -306,7 +305,7 @@ ltdc_state_t ltdcGetState(LTDCDriver *ltdcp) {
  * @brief   Configures and activates the LTDC peripheral.
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
- * @param[in] confip    pointer to the @p LTDCConfig object
+ * @param[in] configp   pointer to the @p LTDCConfig object
  *
  * @api
  */
@@ -440,11 +439,9 @@ void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
   nvicEnableVector(STM32_LTDC_ER_NUMBER,
                    CORTEX_PRIORITY_MASK(STM32_LTDC_ER_IRQ_PRIORITY));
 
-  flags = 0;
+  flags = LTDC_IER_RRIE;
   if (configp->line_isr != NULL)
     flags |= LTDC_IER_LIE;
-  if (configp->rr_isr != NULL)
-    flags |= LTDC_IER_RRIE;
   if (configp->fuerr_isr != NULL)
     flags |= LTDC_IER_FUIE;
   if (configp->terr_isr != NULL)
@@ -546,18 +543,11 @@ void ltdcAcquireBus(LTDCDriver *ltdcp) {
  */
 void ltdcReleaseBusS(LTDCDriver *ltdcp) {
 
-#if CH_USE_MUTEXES
-  const Mutex *releasedp;
-#endif
-
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcReleaseBusS");
 
 #if CH_USE_MUTEXES
-  (void)releasedp;
-  releasedp = chMtxUnlockS();
-  chDbgAssert(&ltdcp->lock == releasedp,
-              "ltdcReleaseBusS(), #1", "invalid state");
+  chMtxUnlockS();
 #else
   chSemSignalI(&ltdcp->lock);
 #endif
@@ -743,48 +733,6 @@ void ltdcStartReload(LTDCDriver *ltdcp, bool_t immediately) {
 #if LTDC_USE_WAIT
 
 /**
- * @brief   Waits for reload completion.
- * @details This function waits for the driver to complete the current LTDC
- *          register reload operation.
- * @pre     An operation must be running while the function is invoked.
- * @note    No more than one thread can wait on a LTDC driver using
- *          this function.
- *
- * @param[in] ltdcp         pointer to the @p LTDCDriver object
- *
- * @sclass
- */
-void ltdcWaitReloadS(LTDCDriver *ltdcp) {
-
-  chDbgCheckClassS();
-  chDbgCheck(ltdcp == &LTDCD1, "ltdcWaitReloadS");
-  chDbgAssert(ltdcp->thread == NULL,
-              "ltdcWaitReloadS(), #1", "already waiting");
-
-  ltdcp->thread = chThdSelf();
-  chSchGoSleepS(THD_STATE_SUSPENDED);
-}
-
-/**
- * @brief   Waits for reload completion.
- * @details This function waits for the driver to complete the current LTDC
- *          register reload operation.
- * @pre     An operation must be running while the function is invoked.
- * @note    No more than one thread can wait on a LTDC driver using
- *          this function.
- *
- * @param[in] ltdcp         pointer to the @p LTDCDriver object
- *
- * @api
- */
-void ltdcWaitReload(LTDCDriver *ltdcp) {
-
-  chSysLock();
-  ltdcWaitReloadS(ltdcp);
-  chSysUnlock();
-}
-
-/**
  * @brief   Reload shadow registers.
  * @details Reloads LTDC shadow registers, upon vsync or immediately.
  *
@@ -797,9 +745,12 @@ void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately) {
 
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcReloadS");
+  chDbgAssert(ltdcp->thread == NULL,
+              "ltdcReloadS(), #1", "already waiting");
 
   ltdcStartReloadI(ltdcp, immediately);
-  ltdcWaitReloadS(ltdcp);
+  ltdcp->thread = chThdSelf();
+  chSchGoSleepS(THD_STATE_SUSPENDED);
 }
 
 /**
@@ -1816,7 +1767,7 @@ ltdc_color_t ltdcBgGetKeyingColor(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Set background layer color key.
- * @details Sets the color key of the background layer.
+ * @details Sets the color key of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         color key, RGB-888
@@ -1835,7 +1786,7 @@ void ltdcBgSetKeyingColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
 
 /**
  * @brief   Set background layer color key.
- * @details Sets the color key of the background layer.
+ * @details Sets the color key of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         color key, RGB-888
@@ -1962,7 +1913,7 @@ ltdc_color_t ltdcBgGetDefaultColor(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Set background layer default color.
- * @details Sets the default color of the background layer.
+ * @details Sets the default color of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         default color, RGB-888
@@ -1980,7 +1931,7 @@ void ltdcBgSetDefaultColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
 
 /**
  * @brief   Set background layer default color.
- * @details Sets the default color of the background layer.
+ * @details Sets the default color of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         default color, RGB-888
@@ -1996,7 +1947,7 @@ void ltdcBgSetDefaultColor(LTDCDriver *ltdcp, ltdc_color_t c) {
 
 /**
  * @brief   Get background layer blending factors.
- * @details Gets the blending factors of the background layer.
+ * @details Gets the blending factors of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
@@ -2015,7 +1966,7 @@ ltdc_blendf_t ltdcBgGetBlendingFactorsI(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Get background layer blending factors.
- * @details Gets the blending factors of the background layer.
+ * @details Gets the blending factors of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
@@ -2034,7 +1985,7 @@ ltdc_blendf_t ltdcBgGetBlendingFactors(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Set background layer blending factors.
- * @details Sets the blending factors of the background layer.
+ * @details Sets the blending factors of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] factors   blending factors
@@ -2053,7 +2004,7 @@ void ltdcBgSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_blendf_t bf) {
 
 /**
  * @brief   Set background layer blending factors.
- * @details Sets the blending factors of the background layer.
+ * @details Sets the blending factors of the background layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] factors   blending factors
@@ -3085,7 +3036,7 @@ ltdc_color_t ltdcFgGetKeyingColor(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Set foreground layer color key.
- * @details Sets the color key of the foreground layer.
+ * @details Sets the color key of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         color key, RGB-888
@@ -3104,7 +3055,7 @@ void ltdcFgSetKeyingColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
 
 /**
  * @brief   Set foreground layer color key.
- * @details Sets the color key of the foreground layer.
+ * @details Sets the color key of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         color key, RGB-888
@@ -3231,7 +3182,7 @@ ltdc_color_t ltdcFgGetDefaultColor(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Set foreground layer default color.
- * @details Sets the default color of the foreground layer.
+ * @details Sets the default color of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         default color, RGB-888
@@ -3249,7 +3200,7 @@ void ltdcFgSetDefaultColorI(LTDCDriver *ltdcp, ltdc_color_t c) {
 
 /**
  * @brief   Set foreground layer default color.
- * @details Sets the default color of the foreground layer.
+ * @details Sets the default color of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] c         default color, RGB-888
@@ -3265,7 +3216,7 @@ void ltdcFgSetDefaultColor(LTDCDriver *ltdcp, ltdc_color_t c) {
 
 /**
  * @brief   Get foreground layer blending factors.
- * @details Gets the blending factors of the foreground layer.
+ * @details Gets the blending factors of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
@@ -3284,7 +3235,7 @@ ltdc_blendf_t ltdcFgGetBlendingFactorsI(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Get foreground layer blending factors.
- * @details Gets the blending factors of the foreground layer.
+ * @details Gets the blending factors of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  *
@@ -3303,7 +3254,7 @@ ltdc_blendf_t ltdcFgGetBlendingFactors(LTDCDriver *ltdcp) {
 
 /**
  * @brief   Set foreground layer blending factors.
- * @details Sets the blending factors of the foreground layer.
+ * @details Sets the blending factors of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] factors   blending factors
@@ -3322,7 +3273,7 @@ void ltdcFgSetBlendingFactorsI(LTDCDriver *ltdcp, ltdc_blendf_t bf) {
 
 /**
  * @brief   Set foreground layer blending factors.
- * @details Sets the blending factors of the foreground layer.
+ * @details Sets the blending factors of the foreground layer (layer 1).
  *
  * @param[in] ltdcp     pointer to the @p LTDCDriver object
  * @param[in] factors   blending factors
