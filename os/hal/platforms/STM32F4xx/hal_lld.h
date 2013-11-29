@@ -584,7 +584,6 @@
 #define STM32_HAS_USB           FALSE
 #define STM32_HAS_OTG1          TRUE
 #define STM32_HAS_OTG2          TRUE
-/** @} */
 
 /* LTDC attributes.*/
 #ifdef STM32F429_439xx
@@ -592,6 +591,14 @@
 #else
 #define STM32_HAS_LTDC          FALSE
 #endif
+
+/* DMA2D attributes.*/
+#ifdef STM32F429_439xx
+#define STM32_HAS_DMA2D         TRUE
+#else
+#define STM32_HAS_DMA2D         FALSE
+#endif
+/** @} */
 
 /*===========================================================================*/
 /* Platform specific friendly IRQ names.                                     */
@@ -692,8 +699,13 @@
 #define HASH_RNG_IRQHandler     Vector180   /**< Hash and Rng.              */
 #if defined(STM32F4XX) || defined(__DOXYGEN__)
 #define FPU_IRQHandler          Vector184   /**< Floating Point Unit.       */
+#endif
+#if STM32_HAS_LTDC || defined(__DOXYGEN__)
 #define LTDC_EV_IRQHandler      Vector1A0   /**< LTDC event.                */
 #define LTDC_ER_IRQHandler      Vector1A4   /**< LTDC error.                */
+#endif
+#if STM32_HAS_DMA2D || defined(__DOXYGEN__)
+#define DMA2D_IRQHandler        Vector1A8   /**< DMA2D.                     */
 #endif
 /** @} */
 
