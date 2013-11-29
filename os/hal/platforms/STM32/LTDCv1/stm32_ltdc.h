@@ -40,6 +40,7 @@
 
 /**
  * @name    LTDC enable flags
+ * @{
  */
 #define LTDC_EF_ENABLE          (1 <<  0)   /**< LTDC enabled.*/
 #define LTDC_EF_DITHER          (1 << 16)   /**< Dithering enabled.*/
@@ -55,6 +56,7 @@
 
 /**
  * @name    LTDC layer enable flags
+ * @{
  */
 #define LTDC_LEF_ENABLE         (1 << 0)    /**< Layer enabled*/
 #define LTDC_LEF_KEYING         (1 << 1)    /**< Color keying enabled.*/
