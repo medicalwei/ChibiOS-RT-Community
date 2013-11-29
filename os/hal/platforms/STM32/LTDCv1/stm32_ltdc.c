@@ -125,7 +125,7 @@ static void ltdc_force_reload_s(LTDCDriver *ltdcp) {
 
   LTDC->SRCR |= LTDC_SRCR_IMR;
   while (LTDC->SRCR & (LTDC_SRCR_IMR | LTDC_SRCR_VBR))
-    ;
+    chSchDoYieldS();
 }
 
 /*===========================================================================*/
@@ -482,7 +482,7 @@ void ltdcStop(LTDCDriver *ltdcp) {
 #else
   ltdcStartReloadI(ltdcp);
   while (ltdcIsReloadingI(ltdcp))
-    ;
+    chSchDoYieldS();
 #endif /* LTDC_USE_WAIT */
 
   ltdcp->state = LTDC_STOP;
