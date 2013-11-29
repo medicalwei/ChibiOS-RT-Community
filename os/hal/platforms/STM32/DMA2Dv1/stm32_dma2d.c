@@ -111,7 +111,7 @@ static void dma2d_job_completion_from_isr(DMA2DDriver *dma2dp) {
     tp->p_u.rdymsg = RDY_OK;
     chSchReadyI(tp);
   }
-#endif /* LTDC_USE_WAIT */
+#endif /* DMA2D_USE_WAIT */
 
   dma2dp->state = DMA2D_READY;
   chSysUnlockFromIsr();
@@ -300,7 +300,9 @@ void dma2dStart(DMA2DDriver *dma2dp, const DMA2DConfig *configp) {
   /* Turn off the controller and its interrupts.*/
   DMA2D->CR = 0;
 
-  // TODO
+  /* Enable interrupts, except Line Watermark.*/
+  DMA2D->CR = DMA2D_CR_CEIE | DMA2D_CR_CTCIE | DMA2D_CR_CAEIE |
+              DMA2D_CR_TCIE | DMA2D_CR_TEIE;
 
   dma2dp->state = DMA2D_READY;
   chSysUnlock();
@@ -315,22 +317,39 @@ void dma2dStart(DMA2DDriver *dma2dp, const DMA2DConfig *configp) {
  */
 void dma2dStop(DMA2DDriver *dma2dp) {
 
+  chSysLock();
+
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dStop");
   chDbgAssert(dma2dp->state == DMA2D_READY,
               "dma2dStop(), #1", "invalid state");
+#if DMA2D_USE_WAIT
+  chDbgAssert(dma2dp->thread == NULL,
+              "dma2dStop(), #2", "still waiting");
+#endif /* DMA2D_USE_WAIT */
 
   dma2dp->state = DMA2D_STOP;
+  chSysUnlock();
 }
 
 #if DMA2D_USE_MUTUAL_EXCLUSION
 
 /**
- * TODO
+ * @brief   Gains exclusive access to the DMA2D module.
+ * @details This function tries to gain ownership to the DMA2D module, if the
+ *          module is already being used then the invoking thread is queued.
+ * @pre     In order to use this function the option
+ *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @sclass
  */
 void dma2dAcquireBusS(DMA2DDriver *dma2dp) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dAcquireBusS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dAcquireBusS(), #1", "not ready");
 
 #if CH_USE_MUTEXES
   chMtxLockS(&dma2dp->lock);
@@ -340,7 +359,15 @@ void dma2dAcquireBusS(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Gains exclusive access to the DMA2D module.
+ * @details This function tries to gain ownership to the DMA2D module, if the
+ *          module is already being used then the invoking thread is queued.
+ * @pre     In order to use this function the option
+ *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dAcquireBus(DMA2DDriver *dma2dp) {
 
@@ -350,12 +377,20 @@ void dma2dAcquireBus(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Releases exclusive access to the DMA2D module.
+ * @pre     In order to use this function the option
+ *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @sclass
  */
 void dma2dReleaseBusS(DMA2DDriver *dma2dp) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dReleaseBusS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dReleaseBusS(), #1", "not ready");
 
 #if CH_USE_MUTEXES
   chMtxUnlockS();
@@ -365,7 +400,13 @@ void dma2dReleaseBusS(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Releases exclusive access to the DMA2D module.
+ * @pre     In order to use this function the option
+ *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dReleaseBus(DMA2DDriver *dma2dp) {
 
@@ -618,14 +659,63 @@ void dma2dDisableDeadTime(DMA2DDriver *dma2dp) {
 /**
  * TODO
  */
-void dma2dGetSizeI(DMA2DDriver *dma2dp, uint16_t *widthp, uint16_t *heightp) {
+dma2d_jobmode_t dma2dJobGetModeI(DMA2DDriver *dma2dp) {
+
+  chDbgCheckClassI();
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobGetModeI");
+  (void)dma2dp;
+
+  return (dma2d_jobmode_t)(DMA2D->CR & DMA2D_CR_MODE);
+}
+
+/**
+ * TODO
+ */
+dma2d_jobmode_t dma2dJobGetMode(DMA2DDriver *dma2dp) {
+
+  dma2d_jobmode_t mode;
+  chSysLock();
+  mode = dma2dJobGetModeI(dma2dp);
+  chSysUnlock();
+  return mode;
+}
+
+/**
+ * TODO
+ */
+void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
+
+  chDbgCheckClassI();
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobSetModeI");
+  chDbgAssert((mode & ~DMA2D_CR_MODE) == 0,
+              "dma2dJobSetModeI(), #1", "outside range");
+  (void)dma2dp;
+
+  DMA2D->CR = (DMA2D->CR & ~DMA2D_CR_MODE) | ((uint32_t)mode & DMA2D_CR_MODE);
+}
+
+/**
+ * TODO
+ */
+void dma2dJobSetMode(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
+
+  chSysLock();
+  dma2dJobSetModeI(dma2dp, mode);
+  chSysUnlock();
+}
+
+/**
+ * TODO
+ */
+void dma2dJobGetSizeI(DMA2DDriver *dma2dp,
+                      uint16_t *widthp, uint16_t *heightp) {
 
   uint32_t r;
 
   chDbgCheckClassI();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2dGetSizeI");
-  chDbgCheck(widthp != NULL, "dma2dGetSizeI");
-  chDbgCheck(heightp != NULL, "dma2dGetSizeI");
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobGetSizeI");
+  chDbgCheck(widthp != NULL, "dma2dJobGetSizeI");
+  chDbgCheck(heightp != NULL, "dma2dJobGetSizeI");
   (void)dma2dp;
 
   r = DMA2D->NLR;
@@ -636,24 +726,25 @@ void dma2dGetSizeI(DMA2DDriver *dma2dp, uint16_t *widthp, uint16_t *heightp) {
 /**
  * TODO
  */
-void dma2dGetSize(DMA2DDriver *dma2dp, uint16_t *widthp, uint16_t *heightp) {
+void dma2dJobGetSize(DMA2DDriver *dma2dp,
+                     uint16_t *widthp, uint16_t *heightp) {
 
   chSysLock();
-  dma2dGetSizeI(dma2dp, widthp, heightp);
+  dma2dJobGetSizeI(dma2dp, widthp, heightp);
   chSysUnlock();
 }
 
 /**
  * TODO
  */
-void dma2dSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
+void dma2dJobSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 
   chDbgCheckClassI();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2dSetSizeI");
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobSetSizeI");
   chDbgAssert(width <= DMA2D_MAX_WIDTH,
-              "dma2dSetSizeI(), #1", "outside range");
+              "dma2dJobSetSizeI(), #1", "outside range");
   chDbgAssert(height <= DMA2D_MAX_HEIGHT,
-              "dma2dSetSizeI(), #2", "outside range");
+              "dma2dJobSetSizeI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->NLR = (((uint32_t)width  << 16) & DMA2D_NLR_PL) |
@@ -663,10 +754,10 @@ void dma2dSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 /**
  * TODO
  */
-void dma2dSetSize(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
+void dma2dJobSetSize(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 
   chSysLock();
-  dma2dSetSizeI(dma2dp, width, height);
+  dma2dJobSetSizeI(dma2dp, width, height);
   chSysUnlock();
 }
 
@@ -919,7 +1010,7 @@ size_t dma2dBgGetWrapOffsetI(DMA2DDriver *dma2dp) {
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgGetWrapOffsetI");
   (void)dma2dp;
 
-  return (size_t)DMA2D->BGOR;
+  return (size_t)(DMA2D->BGOR & DMA2D_BGOR_LO);
 }
 
 /**
@@ -958,7 +1049,8 @@ void dma2dBgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
               "dma2dBgSetWrapOffsetI(), #1", "outside range");
   (void)dma2dp;
 
-  DMA2D->BGOR = (uint32_t)offset;
+  DMA2D->BGOR = (DMA2D->BGOR & ~DMA2D_BGOR_LO) |
+                ((uint32_t)offset & DMA2D_BGOR_LO);
 }
 
 /**
@@ -1357,7 +1449,7 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
   dma2d_go_sleep_s(dma2dp);
 #else
   while (DMA2D->BGPFCCR & DMA2D_BGPFCCR_START)
-    ;
+    chSchDoYieldS();
 #endif /* DMA2D_USE_WAIT */
 }
 
@@ -1569,7 +1661,7 @@ size_t dma2dFgGetWrapOffsetI(DMA2DDriver *dma2dp) {
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgGetWrapOffsetI");
   (void)dma2dp;
 
-  return (size_t)DMA2D->FGOR;
+  return (size_t)(DMA2D->FGOR & DMA2D_FGOR_LO);
 }
 
 /**
@@ -1608,7 +1700,8 @@ void dma2dFgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
               "dma2dFgSetWrapOffsetI(), #1", "outside range");
   (void)dma2dp;
 
-  DMA2D->FGOR = (uint32_t)offset;
+  DMA2D->FGOR = (DMA2D->FGOR & ~DMA2D_FGOR_LO) |
+                ((uint32_t)offset & DMA2D_FGOR_LO);
 }
 
 /**
@@ -2007,7 +2100,7 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
   dma2d_go_sleep_s(dma2dp);
 #else
   while (DMA2D->FGPFCCR & DMA2D_FGPFCCR_START)
-    ;
+    chSchDoYieldS();
 #endif /* DMA2D_USE_WAIT */
 }
 
@@ -2219,7 +2312,7 @@ size_t dma2dOutGetWrapOffsetI(DMA2DDriver *dma2dp) {
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dOutGetWrapOffsetI");
   (void)dma2dp;
 
-  return (size_t)DMA2D->OOR;
+  return (size_t)(DMA2D->OOR & DMA2D_OOR_LO);
 }
 
 /**
@@ -2258,7 +2351,8 @@ void dma2dOutSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
               "dma2dOutSetWrapOffsetI(), #1", "outside range");
   (void)dma2dp;
 
-  DMA2D->OOR = (uint32_t)offset;
+  DMA2D->OOR = (DMA2D->OOR & ~DMA2D_OOR_LO) |
+               ((uint32_t)offset & DMA2D_OOR_LO);
 }
 
 /**

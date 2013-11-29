@@ -39,7 +39,18 @@
 /*===========================================================================*/
 
 /**
- * @name    DMA2D enable flags
+ * @name    DMA2D job modes
+ * @{
+ */
+#define DMA2D_JOB_COPY          (0 << 16)   /**< Exact copy (FG only).*/
+#define DMA2D_JOB_CONV          (1 << 16)   /**< Copy, convert (FG + PFC).*/
+#define DMA2D_JOB_BLEND         (2 << 16)   /**< Copy, blend (FG + BG + PFC).*/
+#define DMA2D_JOB_CONST         (3 << 16)   /**< Constant value (REG only).*/
+/** @} */
+
+/**
+ * @name    DMA2D enable flag
+ * @{
  */
 #define DMA2D_EF_ENABLE         (1 <<  0)   /**< DMA2D enabled.*/
 #define DMA2D_EF_DITHER         (1 << 16)   /**< Dithering enabled.*/
@@ -55,6 +66,7 @@
 
 /**
  * @name    DMA2D layer enable flags
+ * @{
  */
 #define DMA2D_LEF_ENABLE        (1 << 0)    /**< Layer enabled*/
 #define DMA2D_LEF_KEYING        (1 << 1)    /**< Color keying enabled.*/
@@ -331,9 +343,9 @@ typedef union dma2d_coloralias_t {
 } dma2d_coloralias_t;
 
 /**
- * @brief   LTDC layer identifier.
+ * @brief   DMA2D job (transfer) mode.
  */
-typedef uint32_t dma2d_layerid_t;
+typedef uint32_t dma2d_jobmode_t;
 
 /**
  * @brief   DMA2D pixel format.
@@ -516,10 +528,16 @@ extern "C" {
   void dma2dEnableDeadTime(DMA2DDriver *dma2dp);
   void dma2dDisableDeadTimeI(DMA2DDriver *dma2dp);
   void dma2dDisableDeadTime(DMA2DDriver *dma2dp);
-  void dma2dGetSizeI(DMA2DDriver *dma2dp, uint16_t *widthp, uint16_t *heightp);
-  void dma2dGetSize(DMA2DDriver *dma2dp, uint16_t *widthp, uint16_t *heightp);
-  void dma2dSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height);
-  void dma2dSetSize(DMA2DDriver *dma2dp, uint16_t width, uint16_t height);
+  dma2d_jobmode_t dma2dJobGetModeI(DMA2DDriver *dma2dp);
+  dma2d_jobmode_t dma2dJobGetMode(DMA2DDriver *dma2dp);
+  void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode);
+  void dma2dJobSetMode(DMA2DDriver *dma2dp, dma2d_jobmode_t mode);
+  void dma2dJobGetSizeI(DMA2DDriver *dma2dp,
+                        uint16_t *widthp, uint16_t *heightp);
+  void dma2dJobGetSize(DMA2DDriver *dma2dp,
+                       uint16_t *widthp, uint16_t *heightp);
+  void dma2dJobSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height);
+  void dma2dJobSetSize(DMA2DDriver *dma2dp, uint16_t width, uint16_t height);
   bool_t dma2dJobIsExecutingI(DMA2DDriver *dma2dp);
   bool_t dma2dJobIsExecuting(DMA2DDriver *dma2dp);
   void dma2dJobStartI(DMA2DDriver *dma2dp);
