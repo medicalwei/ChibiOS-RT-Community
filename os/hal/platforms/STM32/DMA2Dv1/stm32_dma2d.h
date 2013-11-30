@@ -553,10 +553,10 @@ extern "C" {
   bool_t dma2dJobIsExecuting(DMA2DDriver *dma2dp);
   void dma2dJobStartI(DMA2DDriver *dma2dp);
   void dma2dJobStart(DMA2DDriver *dma2dp);
-#if DMA2D_USE_WAIT
+  void dma2dJobWaitCompletionS(DMA2DDriver *dma2dp);
+  void dma2dJobWaitCompletion(DMA2DDriver *dma2dp);
   void dma2dJobExecuteS(DMA2DDriver *dma2dp);
   void dma2dJobExecute(DMA2DDriver *dma2dp);
-#endif /* DMA2D_USE_WAIT */
   void dma2dJobSuspendI(DMA2DDriver *dma2dp);
   void dma2dJobSuspend(DMA2DDriver *dma2dp);
   void dma2dJobResumeI(DMA2DDriver *dma2dp);

@@ -100,6 +100,7 @@ static const uint8_t dma2d_bpp[11] = {
 /* Driver local functions.                                                   */
 /*===========================================================================*/
 
+#if DMA2D_USE_WAIT
 /**
  * @brief   Put the current thread to sleep.
  * @details Takes note of the thread address.
@@ -111,18 +112,13 @@ static void dma2d_wait_s(DMA2DDriver *dma2dp) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2d_wait_s");
-
-#if DMA2D_USE_WAIT
   chDbgAssert(dma2dp->thread == NULL,
-              "dma2dJobWaitS(), #1", "already waiting");
+              "dma2d_wait_s(), #1", "already waiting");
 
   dma2dp->thread = chThdSelf();
   chSchGoSleepS(THD_STATE_SUSPENDED);
-#else
-  while (DMA2D->FGPFCCR & DMA2D_FGPFCCR_START)
-    chSchDoYieldS();
-#endif
 }
+#endif /* DMA2D_USE_WAIT */
 
 /**
  * @brief   Wakes the last thread up.
@@ -1064,7 +1060,31 @@ void dma2dJobStart(DMA2DDriver *dma2dp) {
   chSysUnlock();
 }
 
+/**
+ * TODO
+ */
+void dma2dJobWaitCompletionS(DMA2DDriver *dma2dp) {
+
+  chDbgCheckClassS();
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dWaitCompletionS");
+
 #if DMA2D_USE_WAIT
+  dma2d_wait_s(dma2dp);
+#else
+  while (DMA2D->CR & DMA2D_CR_START)
+    chSchDoYieldS();
+#endif
+}
+
+/**
+ * TODO
+ */
+void dma2dJobWaitCompletion(DMA2DDriver *dma2dp) {
+
+  chSysLock();
+  dma2dJobWaitCompletionS(dma2dp);
+  chSysUnlock();
+}
 
 /**
  * TODO
@@ -1075,7 +1095,7 @@ void dma2dJobExecuteS(DMA2DDriver *dma2dp) {
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobExecuteS");
 
   dma2dJobStartI(dma2dp);
-  dma2d_wait_s(dma2dp);
+  dma2dJobWaitCompletionS(dma2dp);
 }
 
 /**
@@ -1087,8 +1107,6 @@ void dma2dJobExecute(DMA2DDriver *dma2dp) {
   dma2dJobExecuteS(dma2dp);
   chSysUnlock();
 }
-
-#endif /* DMA2D_USE_WAIT */
 
 /**
  * @brief   Suspend current job.
@@ -1755,7 +1773,12 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
                    | ((uint32_t)palettep->fmt << 4);
   DMA2D->BGPFCCR |= DMA2D_BGPFCCR_START;
 
+#if DMA2D_USE_WAIT
   dma2d_wait_s(dma2dp);
+#else
+  while (DMA2D->BGPFCCR & DMA2D_BGPFCCR_START)
+    chSchDoYieldS();
+#endif /* DMA2D_USE_WAIT */
 }
 
 /**
@@ -2426,7 +2449,12 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
                    | ((uint32_t)palettep->fmt << 4);
   DMA2D->FGPFCCR |= DMA2D_FGPFCCR_START;
 
+#if DMA2D_USE_WAIT
   dma2d_wait_s(dma2dp);
+#else
+  while (DMA2D->FGPFCCR & DMA2D_FGPFCCR_START)
+    chSchDoYieldS();
+#endif /* DMA2D_USE_WAIT */
 }
 
 /**
