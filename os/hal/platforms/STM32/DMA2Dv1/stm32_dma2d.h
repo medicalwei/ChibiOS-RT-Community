@@ -215,6 +215,15 @@
 #define DMA2D_USE_SOFTWARE_CONVERSIONS      TRUE
 #endif
 
+/**
+ * @brief   Enables checks for DMA2D functions.
+ * @note    Disabling this option saves both code and data space.
+ * @note    Disabling checks by ChibiOS will automatically disable DMA2D checks.
+ */
+#if !defined(DMA2D_USE_CHECKS) || defined(__DOXYGEN__)
+#define DMA2D_USE_CHECKS                    TRUE
+#endif
+
 /** @} */
 
 /*===========================================================================*/
@@ -528,6 +537,8 @@ extern "C" {
   void dma2dEnableDeadTime(DMA2DDriver *dma2dp);
   void dma2dDisableDeadTimeI(DMA2DDriver *dma2dp);
   void dma2dDisableDeadTime(DMA2DDriver *dma2dp);
+
+  /* Job methods.*/
   dma2d_jobmode_t dma2dJobGetModeI(DMA2DDriver *dma2dp);
   dma2d_jobmode_t dma2dJobGetMode(DMA2DDriver *dma2dp);
   void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode);

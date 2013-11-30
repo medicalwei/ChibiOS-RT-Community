@@ -39,6 +39,35 @@
 /* Driver local definitions.                                                 */
 /*===========================================================================*/
 
+#if !DMA2D_USE_CHECKS && !defined(__DOXYGEN__)
+/* Disable checks as needed.*/
+
+#ifdef chDbgCheck
+#undef chDbgCheck
+#endif
+#define chDbgCheck(c, func) {                                               \
+  (void)(c), (void)__QUOTE_THIS(func)"()";                                  \
+}
+
+#ifdef chDbgAssert
+#undef chDbgAssert
+#endif
+#define chDbgAssert(c, m, r) {                                              \
+  (void)(c);                                                                \
+}
+
+#ifdef chDbgCheckClassS
+#undef chDbgCheckClassS
+#endif
+#define chDbgCheckClassS() {}
+
+#ifdef chDbgCheckClassS
+#undef chDbgCheckClassS
+#endif
+#define chDbgCheckClassI() {}
+
+#endif /* DMA2D_USE_CHECKS */
+
 /*===========================================================================*/
 /* Driver exported variables.                                                */
 /*===========================================================================*/
@@ -425,7 +454,14 @@ void dma2dReleaseBus(DMA2DDriver *dma2dp) {
  */
 
 /**
- * TODO
+ * @brief   Get watermark position.
+ * @details Gets the watermark line position.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              watermark line position
+ *
+ * @iclass
  */
 uint16_t dma2dGetWatermarkPosI(DMA2DDriver *dma2dp) {
 
@@ -437,7 +473,14 @@ uint16_t dma2dGetWatermarkPosI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Get watermark position.
+ * @details Gets the watermark line position.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              watermark line position
+ *
+ * @api
  */
 uint16_t dma2dGetWatermarkPos(DMA2DDriver *dma2dp) {
 
@@ -449,7 +492,13 @@ uint16_t dma2dGetWatermarkPos(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Set watermark position.
+ * @details Sets the watermark line position.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] line      watermark line position
+ *
+ * @iclass
  */
 void dma2dSetWatermarkPosI(DMA2DDriver *dma2dp, uint16_t line) {
 
@@ -462,7 +511,15 @@ void dma2dSetWatermarkPosI(DMA2DDriver *dma2dp, uint16_t line) {
 }
 
 /**
- * TODO
+ * @brief   Set watermark position.
+ * @details Sets the watermark line position.
+ * @note    The interrupt is invoked after the last pixel of the watermark line
+ *          is written.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] line      watermark line position
+ *
+ * @iclass
  */
 void dma2dSetWatermarkPos(DMA2DDriver *dma2dp, uint16_t line) {
 
@@ -472,7 +529,14 @@ void dma2dSetWatermarkPos(DMA2DDriver *dma2dp, uint16_t line) {
 }
 
 /**
- * TODO
+ * @brief   Watermark interrupt enabled.
+ * @details Tells whether the watermark interrupt is enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
  */
 bool_t dma2dIsWatermarkEnabledI(DMA2DDriver *dma2dp) {
 
@@ -484,7 +548,14 @@ bool_t dma2dIsWatermarkEnabledI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Watermark interrupt enabled.
+ * @details Tells whether the watermark interrupt is enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              enabled
+ *
+ * @api
  */
 bool_t dma2dIsWatermarkEnabled(DMA2DDriver *dma2dp) {
 
@@ -496,7 +567,13 @@ bool_t dma2dIsWatermarkEnabled(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Enable watermark interrupt.
+ * @details Enables the watermark interrupt. The interrupt is invoked after the
+ *          last pixel of the watermark line is written to the output layer.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dEnableWatermarkI(DMA2DDriver *dma2dp) {
 
@@ -508,7 +585,13 @@ void dma2dEnableWatermarkI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Enable watermark interrupt.
+ * @details Enables the watermark interrupt. The interrupt is invoked after the
+ *          last pixel of the watermark line is written to the output layer.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dEnableWatermark(DMA2DDriver *dma2dp) {
 
@@ -518,7 +601,12 @@ void dma2dEnableWatermark(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Disable watermark interrupt.
+ * @details Disables the watermark interrupt.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dDisableWatermarkI(DMA2DDriver *dma2dp) {
 
@@ -530,7 +618,12 @@ void dma2dDisableWatermarkI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Disable watermark interrupt.
+ * @details Disables the watermark interrupt.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dDisableWatermark(DMA2DDriver *dma2dp) {
 
@@ -540,7 +633,15 @@ void dma2dDisableWatermark(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Get dead time cycles.
+ * @details Gets the minimum dead time DMA2D clock cycles between DMA2D
+ *          transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              dead time, in DMA2D clock cycles
+ *
+ * @iclass
  */
 uint32_t dma2dGetDeadTimeI(DMA2DDriver *dma2dp) {
 
@@ -552,7 +653,15 @@ uint32_t dma2dGetDeadTimeI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Get dead time cycles.
+ * @details Gets the minimum dead time DMA2D clock cycles between DMA2D
+ *          transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              dead time, in DMA2D clock cycles
+ *
+ * @api
  */
 uint32_t dma2dGetDeadTime(DMA2DDriver *dma2dp) {
 
@@ -564,7 +673,14 @@ uint32_t dma2dGetDeadTime(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Set dead time cycles.
+ * @details Sets the minimum dead time DMA2D clock cycles between DMA2D
+ *          transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] cycles    dead time, in DMA2D clock cycles
+ *
+ * @iclass
  */
 void dma2dSetDeadTimeI(DMA2DDriver *dma2dp, uint32_t cycles) {
 
@@ -579,7 +695,14 @@ void dma2dSetDeadTimeI(DMA2DDriver *dma2dp, uint32_t cycles) {
 }
 
 /**
- * TODO
+ * @brief   Set dead time cycles.
+ * @details Sets the minimum dead time DMA2D clock cycles between DMA2D
+ *          transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] cycles    dead time, in DMA2D clock cycles
+ *
+ * @api
  */
 void dma2dSetDeadTime(DMA2DDriver *dma2dp, uint32_t cycles) {
 
@@ -589,7 +712,14 @@ void dma2dSetDeadTime(DMA2DDriver *dma2dp, uint32_t cycles) {
 }
 
 /**
- * TODO
+ * @brief   Dead time enabled.
+ * @details Tells whether the dead time between DMA2D transactions is enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              enabled
+ *
+ * @iclass
  */
 bool_t dma2dIsDeadTimeEnabledI(DMA2DDriver *dma2dp) {
 
@@ -601,7 +731,14 @@ bool_t dma2dIsDeadTimeEnabledI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Dead time enabled.
+ * @details Tells whether the dead time between DMA2D transactions is enabled.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              enabled
+ *
+ * @api
  */
 bool_t dma2dIsDeadTimeEnabled(DMA2DDriver *dma2dp) {
 
@@ -613,7 +750,12 @@ bool_t dma2dIsDeadTimeEnabled(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Enable dead time.
+ * @details Enables the dead time between DMA2D transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dEnableDeadTimeI(DMA2DDriver *dma2dp) {
 
@@ -625,7 +767,12 @@ void dma2dEnableDeadTimeI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Enable dead time.
+ * @details Enables the dead time between DMA2D transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dEnableDeadTime(DMA2DDriver *dma2dp) {
 
@@ -635,7 +782,12 @@ void dma2dEnableDeadTime(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Disable dead time.
+ * @details Disables the dead time between DMA2D transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dDisableDeadTimeI(DMA2DDriver *dma2dp) {
 
@@ -647,7 +799,12 @@ void dma2dDisableDeadTimeI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Disable dead time.
+ * @details Disables the dead time between DMA2D transactions.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dDisableDeadTime(DMA2DDriver *dma2dp) {
 
@@ -656,8 +813,22 @@ void dma2dDisableDeadTime(DMA2DDriver *dma2dp) {
   chSysUnlock();
 }
 
+/** @} */
+
 /**
- * TODO
+ * @name    DMA2D job (transaction) methods
+ * @{
+ */
+
+/**
+ * @brief   Get job mode.
+ * @details Gets the job mode.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              job mode
+ *
+ * @iclass
  */
 dma2d_jobmode_t dma2dJobGetModeI(DMA2DDriver *dma2dp) {
 
@@ -669,7 +840,14 @@ dma2d_jobmode_t dma2dJobGetModeI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Get job mode.
+ * @details Gets the job mode.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              job mode
+ *
+ * @api
  */
 dma2d_jobmode_t dma2dJobGetMode(DMA2DDriver *dma2dp) {
 
@@ -681,7 +859,13 @@ dma2d_jobmode_t dma2dJobGetMode(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Set job mode.
+ * @details Sets the job mode.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] mode      job mode
+ *
+ * @iclass
  */
 void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
 
@@ -695,7 +879,13 @@ void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
 }
 
 /**
- * TODO
+ * @brief   Set job mode.
+ * @details Sets the job mode.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] mode      job mode
+ *
+ * @api
  */
 void dma2dJobSetMode(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
 
@@ -705,7 +895,14 @@ void dma2dJobSetMode(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
 }
 
 /**
- * TODO
+ * @brief   Get job size.
+ * @details Gets the job size.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[out] widthp   pointer to the job width, in pixels
+ * @param[out] heightp  pointer to the job height, in pixels
+ *
+ * @iclass
  */
 void dma2dJobGetSizeI(DMA2DDriver *dma2dp,
                       uint16_t *widthp, uint16_t *heightp) {
@@ -724,7 +921,14 @@ void dma2dJobGetSizeI(DMA2DDriver *dma2dp,
 }
 
 /**
- * TODO
+ * @brief   Get job size.
+ * @details Gets the job size.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[out] widthp   pointer to the job width, in pixels
+ * @param[out] heightp  pointer to the job height, in pixels
+ *
+ * @api
  */
 void dma2dJobGetSize(DMA2DDriver *dma2dp,
                      uint16_t *widthp, uint16_t *heightp) {
@@ -735,7 +939,14 @@ void dma2dJobGetSize(DMA2DDriver *dma2dp,
 }
 
 /**
- * TODO
+ * @brief   Set job size.
+ * @details Sets the job size.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] widthp    job width, in pixels
+ * @param[in] heightp   job height, in pixels
+ *
+ * @iclass
  */
 void dma2dJobSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 
@@ -752,7 +963,14 @@ void dma2dJobSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 }
 
 /**
- * TODO
+ * @brief   Set job size.
+ * @details Sets the job size.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ * @param[in] widthp    job width, in pixels
+ * @param[in] heightp   job height, in pixels
+ *
+ * @api
  */
 void dma2dJobSetSize(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 
@@ -762,7 +980,14 @@ void dma2dJobSetSize(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 }
 
 /**
- * TODO
+ * @brief   Job executing.
+ * @details Tells whether a job (transaction) is active or paused.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              executing
+ *
+ * @iclass
  */
 bool_t dma2dJobIsExecutingI(DMA2DDriver *dma2dp) {
 
@@ -773,7 +998,14 @@ bool_t dma2dJobIsExecutingI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Job executing.
+ * @details Tells whether a job (transaction) is active or paused.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @return              executing
+ *
+ * @api
  */
 bool_t dma2dJobIsExecuting(DMA2DDriver *dma2dp) {
 
@@ -835,7 +1067,13 @@ void dma2dJobExecute(DMA2DDriver *dma2dp) {
 #endif /* DMA2D_USE_WAIT */
 
 /**
- * TODO
+ * @brief   Suspend current job.
+ * @details Suspends the current job. The driver is set to a paused state.
+ * @pre     There is an active job.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dJobSuspendI(DMA2DDriver *dma2dp) {
 
@@ -850,7 +1088,13 @@ void dma2dJobSuspendI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Suspend current job.
+ * @details Suspends the current job. The driver is set to a paused state.
+ * @pre     There is an active job.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dJobSuspend(DMA2DDriver *dma2dp) {
 
@@ -860,7 +1104,13 @@ void dma2dJobSuspend(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Resume current job.
+ * @details Resumes the current job.
+ * @pre     There is a suspended job.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dJobResumeI(DMA2DDriver *dma2dp) {
 
@@ -875,7 +1125,13 @@ void dma2dJobResumeI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Resume current job.
+ * @details Resumes the current job.
+ * @pre     There is a suspended job.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dJobResume(DMA2DDriver *dma2dp) {
 
@@ -885,7 +1141,12 @@ void dma2dJobResume(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Abort current job.
+ * @details Abots the current job (if any), and the driver becomes ready.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dJobAbortI(DMA2DDriver *dma2dp) {
 
@@ -900,7 +1161,12 @@ void dma2dJobAbortI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Abort current job.
+ * @details Abots the current job (if any), and the driver becomes ready.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dJobAbort(DMA2DDriver *dma2dp) {
 
