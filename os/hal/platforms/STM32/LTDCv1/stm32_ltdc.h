@@ -257,6 +257,15 @@
 #define LTDC_USE_SOFTWARE_CONVERSIONS       TRUE
 #endif
 
+/**
+ * @brief   Enables checks for LTDC functions.
+ * @note    Disabling this option saves both code and data space.
+ * @note    Disabling checks by ChibiOS will automatically disable LTDC checks.
+ */
+#if !defined(LTDC_USE_CHECKS) || defined(__DOXYGEN__)
+#define LTDC_USE_CHECKS                     TRUE
+#endif
+
 /** @} */
 
 /*===========================================================================*/

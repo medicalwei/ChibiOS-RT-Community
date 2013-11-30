@@ -39,6 +39,35 @@
 /* Driver local definitions.                                                 */
 /*===========================================================================*/
 
+#if !LTDC_USE_CHECKS && !defined(__DOXYGEN__)
+/* Disable checks as needed.*/
+
+#ifdef chDbgCheck
+#undef chDbgCheck
+#endif
+#define chDbgCheck(c, func) {                                               \
+  (void)(c), (void)__QUOTE_THIS(func)"()";                                  \
+}
+
+#ifdef chDbgAssert
+#undef chDbgAssert
+#endif
+#define chDbgAssert(c, m, r) {                                              \
+  (void)(c);                                                                \
+}
+
+#ifdef chDbgCheckClassS
+#undef chDbgCheckClassS
+#endif
+#define chDbgCheckClassS() {}
+
+#ifdef chDbgCheckClassS
+#undef chDbgCheckClassS
+#endif
+#define chDbgCheckClassI() {}
+
+#endif /* LTDC_USE_CHECKS */
+
 #if !defined(LTDC_LxBFCR_BF) && !defined(__DOXYGEN__)
 #define LTDC_LxBFCR_BF  (LTDC_LxBFCR_BF1 | LTDC_LxBFCR_BF2)
 #endif
