@@ -107,15 +107,21 @@ static const uint8_t dma2d_bpp[11] = {
  *
  * @notapi
  */
-static void dma2d_go_sleep_s(DMA2DDriver *dma2dp) {
+static void dma2d_wait_s(DMA2DDriver *dma2dp) {
 
   chDbgCheckClassS();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2d_sleep_s");
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2d_wait_s");
+
+#if DMA2D_USE_WAIT
   chDbgAssert(dma2dp->thread == NULL,
               "dma2dJobWaitS(), #1", "already waiting");
 
   dma2dp->thread = chThdSelf();
   chSchGoSleepS(THD_STATE_SUSPENDED);
+#else
+  while (DMA2D->FGPFCCR & DMA2D_FGPFCCR_START)
+    chSchDoYieldS();
+#endif
 }
 
 /**
@@ -1069,7 +1075,7 @@ void dma2dJobExecuteS(DMA2DDriver *dma2dp) {
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobExecuteS");
 
   dma2dJobStartI(dma2dp);
-  dma2d_go_sleep_s(dma2dp);
+  dma2d_wait_s(dma2dp);
 }
 
 /**
@@ -1748,12 +1754,8 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
                    ((((uint32_t)palettep->length - 1) << 8) & DMA2D_BGPFCCR_CS)
                    | ((uint32_t)palettep->fmt << 4);
   DMA2D->BGPFCCR |= DMA2D_BGPFCCR_START;
-#if DMA2D_USE_WAIT
-  dma2d_go_sleep_s(dma2dp);
-#else
-  while (DMA2D->BGPFCCR & DMA2D_BGPFCCR_START)
-    chSchDoYieldS();
-#endif /* DMA2D_USE_WAIT */
+
+  dma2d_wait_s(dma2dp);
 }
 
 /**
@@ -2423,12 +2425,8 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
                    ((((uint32_t)palettep->length - 1) << 8) & DMA2D_FGPFCCR_CS)
                    | ((uint32_t)palettep->fmt << 4);
   DMA2D->FGPFCCR |= DMA2D_FGPFCCR_START;
-#if DMA2D_USE_WAIT
-  dma2d_go_sleep_s(dma2dp);
-#else
-  while (DMA2D->FGPFCCR & DMA2D_FGPFCCR_START)
-    chSchDoYieldS();
-#endif /* DMA2D_USE_WAIT */
+
+  dma2d_wait_s(dma2dp);
 }
 
 /**
