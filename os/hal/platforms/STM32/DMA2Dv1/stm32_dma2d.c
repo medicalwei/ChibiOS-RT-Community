@@ -309,6 +309,7 @@ dma2d_state_t dma2dGetState(DMA2DDriver *dma2dp) {
 
 /**
  * @brief   Configures and activates the DMA2D peripheral.
+ * @pre     DMA2D is stopped.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] configp   pointer to the @p DMA2DConfig object
@@ -339,6 +340,7 @@ void dma2dStart(DMA2DDriver *dma2dp, const DMA2DConfig *configp) {
 
 /**
  * @brief   Deactivates the DMA2D peripheral.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -368,6 +370,7 @@ void dma2dStop(DMA2DDriver *dma2dp) {
  *          module is already being used then the invoking thread is queued.
  * @pre     In order to use this function the option
  *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -393,6 +396,7 @@ void dma2dAcquireBusS(DMA2DDriver *dma2dp) {
  *          module is already being used then the invoking thread is queued.
  * @pre     In order to use this function the option
  *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -409,6 +413,7 @@ void dma2dAcquireBus(DMA2DDriver *dma2dp) {
  * @brief   Releases exclusive access to the DMA2D module.
  * @pre     In order to use this function the option
  *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -432,6 +437,7 @@ void dma2dReleaseBusS(DMA2DDriver *dma2dp) {
  * @brief   Releases exclusive access to the DMA2D module.
  * @pre     In order to use this function the option
  *          @p DMA2D_USE_MUTUAL_EXCLUSION must be enabled.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -494,6 +500,7 @@ uint16_t dma2dGetWatermarkPos(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set watermark position.
  * @details Sets the watermark line position.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] line      watermark line position
@@ -504,6 +511,8 @@ void dma2dSetWatermarkPosI(DMA2DDriver *dma2dp, uint16_t line) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dSetWatermarkPosI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dSetWatermarkPosI(), #1", "not ready");
   (void)dma2dp;
 
   DMA2D->LWR = (DMA2D->LWR & ~DMA2D_LWR_LW) |
@@ -515,6 +524,7 @@ void dma2dSetWatermarkPosI(DMA2DDriver *dma2dp, uint16_t line) {
  * @details Sets the watermark line position.
  * @note    The interrupt is invoked after the last pixel of the watermark line
  *          is written.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] line      watermark line position
@@ -861,6 +871,7 @@ dma2d_jobmode_t dma2dJobGetMode(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set job mode.
  * @details Sets the job mode.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] mode      job mode
@@ -871,8 +882,10 @@ void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobSetModeI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dJobSetModeI(), #1", "not ready");
   chDbgAssert((mode & ~DMA2D_CR_MODE) == 0,
-              "dma2dJobSetModeI(), #1", "outside range");
+              "dma2dJobSetModeI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->CR = (DMA2D->CR & ~DMA2D_CR_MODE) | ((uint32_t)mode & DMA2D_CR_MODE);
@@ -881,6 +894,7 @@ void dma2dJobSetModeI(DMA2DDriver *dma2dp, dma2d_jobmode_t mode) {
 /**
  * @brief   Set job mode.
  * @details Sets the job mode.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] mode      job mode
@@ -941,6 +955,7 @@ void dma2dJobGetSize(DMA2DDriver *dma2dp,
 /**
  * @brief   Set job size.
  * @details Sets the job size.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] widthp    job width, in pixels
@@ -952,10 +967,12 @@ void dma2dJobSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobSetSizeI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dJobSetSizeI(), #1", "not ready");
   chDbgAssert(width <= DMA2D_MAX_WIDTH,
-              "dma2dJobSetSizeI(), #1", "outside range");
-  chDbgAssert(height <= DMA2D_MAX_HEIGHT,
               "dma2dJobSetSizeI(), #2", "outside range");
+  chDbgAssert(height <= DMA2D_MAX_HEIGHT,
+              "dma2dJobSetSizeI(), #3", "outside range");
   (void)dma2dp;
 
   DMA2D->NLR = (((uint32_t)width  << 16) & DMA2D_NLR_PL) |
@@ -965,6 +982,7 @@ void dma2dJobSetSizeI(DMA2DDriver *dma2dp, uint16_t width, uint16_t height) {
 /**
  * @brief   Set job size.
  * @details Sets the job size.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] widthp    job width, in pixels
@@ -1301,6 +1319,7 @@ size_t dma2dBgGetWrapOffset(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set background layer wrap offset.
  * @details Sets the buffer line wrap offset of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] offset    wrap offset, in bytes
@@ -1311,8 +1330,10 @@ void dma2dBgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetWrapOffsetI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dBgSetWrapOffsetI(), #1", "not ready");
   chDbgAssert(offset <= DMA2D_MAX_OFFSET,
-              "dma2dBgSetWrapOffsetI(), #1", "outside range");
+              "dma2dBgSetWrapOffsetI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->BGOR = (DMA2D->BGOR & ~DMA2D_BGOR_LO) |
@@ -1322,6 +1343,7 @@ void dma2dBgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
 /**
  * @brief   Set background layer wrap offset.
  * @details Sets the buffer line wrap offset of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] offset    wrap offset, in bytes
@@ -1376,6 +1398,7 @@ uint8_t dma2dBgGetConstantAlpha(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set background layer constant alpha.
  * @details Sets the constant alpha component of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] a         constant alpha component, A-8
@@ -1386,6 +1409,8 @@ void dma2dBgSetConstantAlphaI(DMA2DDriver *dma2dp, uint8_t a) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetConstantAlphaI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dBgSetConstantAlphaI(), #1", "not ready");
   (void)dma2dp;
 
   DMA2D->BGPFCCR = (DMA2D->BGPFCCR & ~DMA2D_BGPFCCR_ALPHA) |
@@ -1395,6 +1420,7 @@ void dma2dBgSetConstantAlphaI(DMA2DDriver *dma2dp, uint8_t a) {
 /**
  * @brief   Set background layer constant alpha.
  * @details Sets the constant alpha component of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] a         constant alpha component, A-8
@@ -1449,6 +1475,7 @@ dma2d_amode_t dma2dBgGetAlphaMode(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set background layer alpha mode.
  * @details Sets the alpha mode of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] mode      alpha mode
@@ -1459,10 +1486,12 @@ void dma2dBgSetAlphaModeI(DMA2DDriver *dma2dp, dma2d_amode_t mode) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetAlphaModeI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dBgSetAlphaModeI(), #1", "not ready");
   chDbgAssert((mode & ~DMA2D_BGPFCCR_AM) == 0,
-             "dma2dBgSetAlphaModeI(), #1", "outside range");
+              "dma2dBgSetAlphaModeI(), #2", "outside range");
   chDbgAssert((mode & DMA2D_BGPFCCR_AM) != DMA2D_BGPFCCR_AM,
-             "dma2dBgSetAlphaModeI(), #2", "outside range");
+              "dma2dBgSetAlphaModeI(), #3", "outside range");
   (void)dma2dp;
 
   DMA2D->BGPFCCR = (DMA2D->BGPFCCR & ~DMA2D_BGPFCCR_AM) |
@@ -1472,6 +1501,7 @@ void dma2dBgSetAlphaModeI(DMA2DDriver *dma2dp, dma2d_amode_t mode) {
 /**
  * @brief   Set background layer alpha mode.
  * @details Sets the alpha mode of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] mode      alpha mode
@@ -1526,6 +1556,7 @@ dma2d_pixfmt_t dma2dBgGetPixelFormat(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set background layer pixel format.
  * @details Sets the pixel format of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] fmt       pixel format
@@ -1536,8 +1567,10 @@ void dma2dBgSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetPixelFormatI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dBgSetPixelFormatI(), #1", "not ready");
   chDbgAssert(fmt <= DMA2D_MAX_PIXFMT_ID,
-              "dma2dBgSetPixelFormatI(), #1", "outside range");
+              "dma2dBgSetPixelFormatI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->BGPFCCR = (DMA2D->BGPFCCR & ~DMA2D_BGPFCCR_CM) |
@@ -1547,6 +1580,7 @@ void dma2dBgSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt) {
 /**
  * @brief   Set background layer pixel format.
  * @details Sets the pixel format of the background layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] fmt       pixel format
@@ -1686,6 +1720,7 @@ void dma2dBgGetPalette(DMA2DDriver *dma2dp, dma2d_palcfg_t *palettep) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] palettep  pointer to the palette specifications
@@ -1696,15 +1731,17 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetPaletteS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dBgSetPaletteS(), #1", "not ready");
   chDbgCheck(palettep != NULL, "dma2dBgSetPaletteS");
   chDbgCheck(palettep->colorsp != NULL, "dma2dBgSetPaletteS");
   chDbgAssert(palettep->length > 0,
-              "dma2dBgSetPaletteS(), #1", "outside range");
-  chDbgAssert(palettep->length <= DMA2D_MAX_PALETTE_LENGTH,
               "dma2dBgSetPaletteS(), #2", "outside range");
+  chDbgAssert(palettep->length <= DMA2D_MAX_PALETTE_LENGTH,
+              "dma2dBgSetPaletteS(), #3", "outside range");
   chDbgAssert((palettep->fmt == DMA2D_FMT_ARGB8888) ||
               (palettep->fmt == DMA2D_FMT_RGB888),
-              "dma2dBgSetPaletteS(), #3", "invalid format");
+              "dma2dBgSetPaletteS(), #4", "invalid format");
 
   DMA2D->BGCMAR = (uint32_t)palettep->colorsp;
   DMA2D->BGPFCCR = (DMA2D->BGPFCCR & ~(DMA2D_BGPFCCR_CS | DMA2D_BGPFCCR_CCM)) |
@@ -1725,6 +1762,7 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] palettep  pointer to the palette specifications
@@ -1785,6 +1823,7 @@ void dma2dBgGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] cfgp      pointer to the layer specifications
@@ -1795,6 +1834,8 @@ void dma2dBgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetLayerS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dBgSetLayerS(), #1", "not ready");
   chDbgCheck(cfgp != NULL, "dma2dBgSetLayerS");
 
   dma2dBgSetAddressI(dma2dp, cfgp->bufferp);
@@ -1813,6 +1854,7 @@ void dma2dBgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] cfgp      pointer to the layer specifications
@@ -1952,6 +1994,7 @@ size_t dma2dFgGetWrapOffset(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set foreground layer wrap offset.
  * @details Sets the buffer line wrap offset of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] offset    wrap offset, in bytes
@@ -1962,8 +2005,10 @@ void dma2dFgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetWrapOffsetI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dFgSetWrapOffsetI(), #1", "not ready");
   chDbgAssert(offset <= DMA2D_MAX_OFFSET,
-              "dma2dFgSetWrapOffsetI(), #1", "outside range");
+              "dma2dFgSetWrapOffsetI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->FGOR = (DMA2D->FGOR & ~DMA2D_FGOR_LO) |
@@ -1973,6 +2018,7 @@ void dma2dFgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
 /**
  * @brief   Set foreground layer wrap offset.
  * @details Sets the buffer line wrap offset of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] offset    wrap offset, in bytes
@@ -2027,6 +2073,7 @@ uint8_t dma2dFgGetConstantAlpha(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set foreground layer constant alpha.
  * @details Sets the constant alpha component of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] a         constant alpha component, A-8
@@ -2037,6 +2084,8 @@ void dma2dFgSetConstantAlphaI(DMA2DDriver *dma2dp, uint8_t a) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetConstantAlphaI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dFgSetConstantAlphaI(), #1", "not ready");
   (void)dma2dp;
 
   DMA2D->FGPFCCR = (DMA2D->FGPFCCR & ~DMA2D_FGPFCCR_ALPHA) |
@@ -2046,6 +2095,7 @@ void dma2dFgSetConstantAlphaI(DMA2DDriver *dma2dp, uint8_t a) {
 /**
  * @brief   Set foreground layer constant alpha.
  * @details Sets the constant alpha component of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] a         constant alpha component, A-8
@@ -2100,6 +2150,7 @@ dma2d_amode_t dma2dFgGetAlphaMode(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set foreground layer alpha mode.
  * @details Sets the alpha mode of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] mode      alpha mode
@@ -2110,10 +2161,12 @@ void dma2dFgSetAlphaModeI(DMA2DDriver *dma2dp, dma2d_amode_t mode) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetAlphaModeI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dFgSetAlphaModeI(), #1", "not ready");
   chDbgAssert((mode & ~DMA2D_FGPFCCR_AM) == 0,
-             "dma2dFgSetAlphaModeI(), #1", "outside range");
+              "dma2dFgSetAlphaModeI(), #2", "outside range");
   chDbgAssert((mode & DMA2D_FGPFCCR_AM) != DMA2D_FGPFCCR_AM,
-             "dma2dFgSetAlphaModeI(), #2", "outside range");
+              "dma2dFgSetAlphaModeI(), #3", "outside range");
   (void)dma2dp;
 
   DMA2D->FGPFCCR = (DMA2D->FGPFCCR & ~DMA2D_FGPFCCR_AM) |
@@ -2123,6 +2176,7 @@ void dma2dFgSetAlphaModeI(DMA2DDriver *dma2dp, dma2d_amode_t mode) {
 /**
  * @brief   Set foreground layer alpha mode.
  * @details Sets the alpha mode of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] mode      alpha mode
@@ -2177,6 +2231,7 @@ dma2d_pixfmt_t dma2dFgGetPixelFormat(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set foreground layer pixel format.
  * @details Sets the pixel format of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] fmt       pixel format
@@ -2187,8 +2242,10 @@ void dma2dFgSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetPixelFormatI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dFgSetPixelFormatI(), #1", "not ready");
   chDbgAssert(fmt <= DMA2D_MAX_PIXFMT_ID,
-              "dma2dFgSetPixelFormatI(), #1", "outside range");
+              "dma2dFgSetPixelFormatI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->FGPFCCR = (DMA2D->FGPFCCR & ~DMA2D_FGPFCCR_CM) |
@@ -2198,6 +2255,7 @@ void dma2dFgSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt) {
 /**
  * @brief   Set foreground layer pixel format.
  * @details Sets the pixel format of the foreground layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] fmt       pixel format
@@ -2337,6 +2395,7 @@ void dma2dFgGetPalette(DMA2DDriver *dma2dp, dma2d_palcfg_t *palettep) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] palettep  pointer to the palette specifications
@@ -2347,15 +2406,17 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetPaletteS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dFgSetPaletteS(), #1", "not ready");
   chDbgCheck(palettep != NULL, "dma2dFgSetPaletteS");
   chDbgCheck(palettep->colorsp != NULL, "dma2dFgSetPaletteS");
   chDbgAssert(palettep->length > 0,
-              "dma2dFgSetPaletteS(), #1", "outside range");
-  chDbgAssert(palettep->length <= DMA2D_MAX_PALETTE_LENGTH,
               "dma2dFgSetPaletteS(), #2", "outside range");
+  chDbgAssert(palettep->length <= DMA2D_MAX_PALETTE_LENGTH,
+              "dma2dFgSetPaletteS(), #3", "outside range");
   chDbgAssert((palettep->fmt == DMA2D_FMT_ARGB8888) ||
               (palettep->fmt == DMA2D_FMT_RGB888),
-              "dma2dFgSetPaletteS(), #3", "invalid format");
+              "dma2dFgSetPaletteS(), #4", "invalid format");
 
   DMA2D->FGCMAR = (uint32_t)palettep->colorsp;
   DMA2D->FGPFCCR = (DMA2D->FGPFCCR & ~(DMA2D_FGPFCCR_CS | DMA2D_FGPFCCR_CCM)) |
@@ -2376,6 +2437,7 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] palettep  pointer to the palette specifications
@@ -2436,6 +2498,7 @@ void dma2dFgGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] cfgp      pointer to the layer specifications
@@ -2446,6 +2509,8 @@ void dma2dFgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chDbgCheckClassS();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetLayerS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dFgSetLayerS(), #1", "not ready");
   chDbgCheck(cfgp != NULL, "dma2dFgSetLayerS");
 
   dma2dFgSetAddressI(dma2dp, cfgp->bufferp);
@@ -2464,6 +2529,7 @@ void dma2dFgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
  * @note    This function should not be called while the DMA2D is already
  *          executing a job, otherwise the appropriate error interrupt might be
  *          invoked.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] cfgp      pointer to the layer specifications
@@ -2603,6 +2669,7 @@ size_t dma2dOutGetWrapOffset(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set output layer wrap offset.
  * @details Sets the buffer line wrap offset of the output layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] offset    wrap offset, in bytes
@@ -2613,8 +2680,10 @@ void dma2dOutSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dOutSetWrapOffsetI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dOutSetWrapOffsetI(), #1", "not ready");
   chDbgAssert(offset <= DMA2D_MAX_OFFSET,
-              "dma2dOutSetWrapOffsetI(), #1", "outside range");
+              "dma2dOutSetWrapOffsetI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->OOR = (DMA2D->OOR & ~DMA2D_OOR_LO) |
@@ -2624,6 +2693,7 @@ void dma2dOutSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
 /**
  * @brief   Set output layer wrap offset.
  * @details Sets the buffer line wrap offset of the output layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] offset    wrap offset, in bytes
@@ -2678,6 +2748,7 @@ dma2d_pixfmt_t dma2dOutGetPixelFormat(DMA2DDriver *dma2dp) {
 /**
  * @brief   Set output layer pixel format.
  * @details Sets the pixel format of the output layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] fmt       pixel format
@@ -2688,8 +2759,10 @@ void dma2dOutSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dOutSetPixelFormatI");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dOutSetPixelFormatI(), #1", "not ready");
   chDbgAssert(fmt <= DMA2D_MAX_OUTPIXFMT_ID,
-              "dma2dOutSetPixelFormatI(), #1", "outside range");
+              "dma2dOutSetPixelFormatI(), #2", "outside range");
   (void)dma2dp;
 
   DMA2D->OPFCCR = (DMA2D->OPFCCR & ~DMA2D_OPFCCR_CM) |
@@ -2699,6 +2772,7 @@ void dma2dOutSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt) {
 /**
  * @brief   Set output layer pixel format.
  * @details Sets the pixel format of the output layer.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] fmt       pixel format
@@ -2831,6 +2905,7 @@ void dma2dOutGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp) {
  * @brief   Set output layer specifications.
  * @details Sets the output layer specifications at once.
  * @note    Constant alpha and palette specifications are ignored.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] cfgp      pointer to the layer specifications
@@ -2841,6 +2916,8 @@ void dma2dOutSetLayerI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chDbgCheckClassI();
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dOutSetLayerS");
+  chDbgAssert(dma2dp->state == DMA2D_READY,
+              "dma2dOutSetLayerI(), #1", "not ready");
   chDbgCheck(cfgp != NULL, "dma2dOutSetLayerS");
 
   dma2dOutSetAddressI(dma2dp, cfgp->bufferp);
@@ -2853,6 +2930,7 @@ void dma2dOutSetLayerI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
  * @brief   Set output layer specifications.
  * @details Sets the output layer specifications at once.
  * @note    Constant alpha and palette specifications are ignored.
+ * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  * @param[in] cfgp      pointer to the layer specifications
