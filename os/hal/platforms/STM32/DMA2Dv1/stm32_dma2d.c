@@ -100,26 +100,6 @@ static const uint8_t dma2d_bpp[11] = {
 /* Driver local functions.                                                   */
 /*===========================================================================*/
 
-#if DMA2D_USE_WAIT
-/**
- * @brief   Put the current thread to sleep.
- * @details Takes note of the thread address.
- * @pre     There are no other threads waiting for DMA2D to complete jobs.
- *
- * @notapi
- */
-static void dma2d_wait_s(DMA2DDriver *dma2dp) {
-
-  chDbgCheckClassS();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2d_wait_s");
-  chDbgAssert(dma2dp->thread == NULL,
-              "dma2d_wait_s(), #1", "already waiting");
-
-  dma2dp->thread = chThdSelf();
-  chSchGoSleepS(THD_STATE_SUSPENDED);
-}
-#endif /* DMA2D_USE_WAIT */
-
 /**
  * @brief   Wakes the last thread up.
  * @pre     DMA2D is active.
@@ -1037,7 +1017,14 @@ bool_t dma2dJobIsExecuting(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Start job.
+ * @details The job is started, and the DMA2D is set to active.
+ * @note    Should there be invalid parameters, the appropriate interrupt
+ *          handler will be invoked, and the DMA2D set back to ready.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @iclass
  */
 void dma2dJobStartI(DMA2DDriver *dma2dp) {
 
@@ -1051,7 +1038,14 @@ void dma2dJobStartI(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
+ * @brief   Start job.
+ * @details The job is started, and the DMA2D is set to active.
+ * @note    Should there be invalid parameters, the appropriate interrupt
+ *          handler will be invoked, and the DMA2D set back to ready.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dJobStart(DMA2DDriver *dma2dp) {
 
@@ -1061,33 +1055,14 @@ void dma2dJobStart(DMA2DDriver *dma2dp) {
 }
 
 /**
- * TODO
- */
-void dma2dJobWaitCompletionS(DMA2DDriver *dma2dp) {
-
-  chDbgCheckClassS();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2dWaitCompletionS");
-
-#if DMA2D_USE_WAIT
-  dma2d_wait_s(dma2dp);
-#else
-  while (DMA2D->CR & DMA2D_CR_START)
-    chSchDoYieldS();
-#endif
-}
-
-/**
- * TODO
- */
-void dma2dJobWaitCompletion(DMA2DDriver *dma2dp) {
-
-  chSysLock();
-  dma2dJobWaitCompletionS(dma2dp);
-  chSysUnlock();
-}
-
-/**
- * TODO
+ * @brief   Execute job.
+ * @details Starts the job and waits for its completion, synchronously.
+ * @note    Should there be invalid parameters, the appropriate interrupt
+ *          handler will be invoked, and the DMA2D set back to ready.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @sclass
  */
 void dma2dJobExecuteS(DMA2DDriver *dma2dp) {
 
@@ -1095,11 +1070,24 @@ void dma2dJobExecuteS(DMA2DDriver *dma2dp) {
   chDbgCheck(dma2dp == &DMA2DD1, "dma2dJobExecuteS");
 
   dma2dJobStartI(dma2dp);
-  dma2dJobWaitCompletionS(dma2dp);
+#if DMA2D_USE_WAIT
+  dma2dp->thread = chThdSelf();
+  chSchGoSleepS(THD_STATE_SUSPENDED);
+#else
+  while (DMA2D->CR & DMA2D_CR_START)
+    chSchDoYieldS();
+#endif
 }
 
 /**
- * TODO
+ * @brief   Execute job.
+ * @details Starts the job and waits for its completion, synchronously.
+ * @note    Should there be invalid parameters, the appropriate interrupt
+ *          handler will be invoked, and the DMA2D set back to ready.
+ *
+ * @param[in] dma2dp    pointer to the @p DMA2DDriver object
+ *
+ * @api
  */
 void dma2dJobExecute(DMA2DDriver *dma2dp) {
 
@@ -1148,7 +1136,7 @@ void dma2dJobSuspend(DMA2DDriver *dma2dp) {
 /**
  * @brief   Resume current job.
  * @details Resumes the current job.
- * @pre     There is a suspended job.
+ * @pre     There is a paused job.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -1169,7 +1157,7 @@ void dma2dJobResumeI(DMA2DDriver *dma2dp) {
 /**
  * @brief   Resume current job.
  * @details Resumes the current job.
- * @pre     There is a suspended job.
+ * @pre     There is a paused job.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
@@ -1774,7 +1762,8 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
   DMA2D->BGPFCCR |= DMA2D_BGPFCCR_START;
 
 #if DMA2D_USE_WAIT
-  dma2d_wait_s(dma2dp);
+  dma2dp->thread = chThdSelf();
+  chSchGoSleepS(THD_STATE_SUSPENDED);
 #else
   while (DMA2D->BGPFCCR & DMA2D_BGPFCCR_START)
     chSchDoYieldS();
@@ -2450,7 +2439,8 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
   DMA2D->FGPFCCR |= DMA2D_FGPFCCR_START;
 
 #if DMA2D_USE_WAIT
-  dma2d_wait_s(dma2dp);
+  dma2dp->thread = chThdSelf();
+  chSchGoSleepS(THD_STATE_SUSPENDED);
 #else
   while (DMA2D->FGPFCCR & DMA2D_FGPFCCR_START)
     chSchDoYieldS();
