@@ -17,6 +17,7 @@
 /**
  * @file    ili9341.c
  * @brief   ILI9341 TFT LCD diaplay controller driver.
+ * @note    Does not support multiple calling threads natively.
  */
 
 #include "ch.h"
@@ -110,8 +111,9 @@ void ili9341WriteCommand(ILI9341Driver *driverp, uint8_t cmd) {
   chDbgCheck((driverp != NULL), "ili9341WriteCommand");
   chDbgCheck((driverp->state == ILI9341_ACTIVE), "ili9341WriteCommand");
 
+  driverp->value = cmd;
   palClearPad(driverp->config->dcx_port, driverp->config->dcx_pad); /* !Cmd */
-  spiSend(driverp->config->spi, 1, &cmd);
+  spiSend(driverp->config->spi, 1, &driverp->value);
 }
 
 void ili9341WriteByte(ILI9341Driver *driverp, uint8_t value) {
@@ -119,21 +121,20 @@ void ili9341WriteByte(ILI9341Driver *driverp, uint8_t value) {
   chDbgCheck((driverp != NULL), "ili9341WriteByte");
   chDbgCheck((driverp->state == ILI9341_ACTIVE), "ili9341WriteByte");
 
+  driverp->value = value;
   palSetPad(driverp->config->dcx_port, driverp->config->dcx_pad); /* Data */
-  spiSend(driverp->config->spi, 1, &value);
+  spiSend(driverp->config->spi, 1, &driverp->value);
 }
 
 uint8_t ili9341ReadByte(ILI9341Driver *driverp) {
-
-  uint8_t value;
 
   chDbgAssert(FALSE, "ili9341ReadByte()", "should not be used");
 
   chDbgCheck((driverp != NULL), "ili9341ReadByte");
   chDbgCheck((driverp->state == ILI9341_ACTIVE), "ili9341ReadByte");
 
-  spiReceive(driverp->config->spi, 1, &value);
-  return value;
+  spiReceive(driverp->config->spi, 1, &driverp->value);
+  return driverp->value;
 }
 
 void ili9341WriteChunk(ILI9341Driver *driverp, const uint8_t chunk[],

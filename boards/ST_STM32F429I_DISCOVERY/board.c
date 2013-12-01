@@ -119,6 +119,10 @@ void boardInit(void) {
   ltdcInit();
 #endif
 
+#if STM32_DMA2D_USE_DMA2D
+  dma2dInit();
+#endif
+
   ili9341ObjectInit(&ILI9341D1);
   ili9341Init(&ILI9341D1);
 }

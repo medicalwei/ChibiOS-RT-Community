@@ -169,6 +169,9 @@ typedef struct {
 typedef struct {
   ili9341state_t        state;
   const ILI9341Config   *config;
+
+  /* Temporary variables.*/
+  uint8_t               value;  /**< Non-stacked value, for SPI with CCM.*/
 } ILI9341Driver;
 
 /**
