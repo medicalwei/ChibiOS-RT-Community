@@ -25,6 +25,8 @@
 
 #if STM32_LTDC_USE_LTDC || defined(__DOXYGEN__)
 
+/* TODO: Check preconditions (e.g., LTDC is ready).*/
+
 /* Ignore annoying warning messages for actually safe code.*/
 #if __GNUC__
 #pragma GCC diagnostic ignored "-Wtype-limits"
@@ -459,8 +461,8 @@ void ltdcStart(LTDCDriver *ltdcp, const LTDCConfig *configp) {
   ltdcSetClearColorI(ltdcp, configp->clear_color);
 
   /* Load layer configurations.*/
-  ltdcBgSetLayerI(ltdcp, configp->bg_laycfg);
-  ltdcFgSetLayerI(ltdcp, configp->fg_laycfg);
+  ltdcBgSetConfigI(ltdcp, configp->bg_laycfg);
+  ltdcFgSetConfigI(ltdcp, configp->fg_laycfg);
 
   /* Enable only the assigned interrupt service routines.*/
   nvicEnableVector(STM32_LTDC_EV_NUMBER,
@@ -778,8 +780,14 @@ void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately) {
               "ltdcReloadS(), #1", "already waiting");
 
   ltdcStartReloadI(ltdcp, immediately);
-  ltdcp->thread = chThdSelf();
-  chSchGoSleepS(THD_STATE_SUSPENDED);
+  if (immediately) {
+    while (LTDC->SRCR & LTDC_SRCR_IMR)
+      chSchDoYieldS();
+    ltdcp->state = LTDC_READY;
+  } else {
+    ltdcp->thread = chThdSelf();
+    chSchGoSleepS(THD_STATE_SUSPENDED);
+  }
 }
 
 /**
@@ -2417,16 +2425,16 @@ void ltdcBgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp) {
  *
  * @iclass
  */
-void ltdcBgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+void ltdcBgSetConfigI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
 
   chDbgCheckClassI();
-  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetLayerI");
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcBgSetConfigI");
 
   if (cfgp == NULL)
     cfgp = &ltdc_default_laycfg;
 
   chDbgCheck((cfgp->pal_colors == NULL) == (cfgp->pal_length == 0),
-             "ltdcBgSetLayerI");
+             "ltdcBgSetConfigI");
 
   ltdcBgSetFrameI(ltdcp, cfgp->frame);
   ltdcBgSetWindowI(ltdcp, cfgp->window);
@@ -2451,10 +2459,10 @@ void ltdcBgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
  *
  * @api
  */
-void ltdcBgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+void ltdcBgSetConfig(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
 
   chSysLock();
-  ltdcBgSetLayerI(ltdcp, cfgp);
+  ltdcBgSetConfigI(ltdcp, cfgp);
   chSysUnlock();
 }
 
@@ -3686,16 +3694,16 @@ void ltdcFgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp) {
  *
  * @iclass
  */
-void ltdcFgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+void ltdcFgSetConfigI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
 
   chDbgCheckClassI();
-  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetLayerI");
+  chDbgCheck(ltdcp == &LTDCD1, "ltdcFgSetConfigI");
 
   if (cfgp == NULL)
     cfgp = &ltdc_default_laycfg;
 
   chDbgCheck((cfgp->pal_colors == NULL) == (cfgp->pal_length == 0),
-             "ltdcFgSetLayerI");
+             "ltdcFgSetConfigI");
 
   ltdcFgSetFrameI(ltdcp, cfgp->frame);
   ltdcFgSetWindowI(ltdcp, cfgp->window);
@@ -3720,10 +3728,10 @@ void ltdcFgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
  *
  * @api
  */
-void ltdcFgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
+void ltdcFgSetConfig(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp) {
 
   chSysLock();
-  ltdcFgSetLayerI(ltdcp, cfgp);
+  ltdcFgSetConfigI(ltdcp, cfgp);
   chSysUnlock();
 }
 
