@@ -17,7 +17,6 @@
 /**
  * @file    ili9341.h
  * @brief   ILI9341 TFT LCD diaplay controller driver.
- * @pre     STM32F4 MCU.
  */
 
 #ifndef _ILI9341_H_
@@ -134,13 +133,45 @@
 /* Driver pre-compile time settings.                                         */
 /*===========================================================================*/
 
-#if !defined(ILI9341_IM)
-#define ILI9341_IM                      ILI9341_IM_4LSI_1
+/**
+ * @name    ILI9341 configuration options
+ * @{
+ */
+
+/**
+ * @brief   Enables the @p ili9341AcquireBus() and @p ili9341ReleaseBus() APIs.
+ * @note    Disabling this option saves both code and data space.
+ */
+#if !defined(ILI9341_USE_MUTUAL_EXCLUSION) || defined(__DOXYGEN__)
+#define ILI9341_USE_MUTUAL_EXCLUSION        TRUE
 #endif
+
+/**
+ * @brief   ILI9341 Interface Mode.
+ */
+#if !defined(ILI9341_IM) || defined(__DOXYGEN__)
+#define ILI9341_IM                          ILI9341_IM_4LSI_1
+#endif
+
+/**
+ * @brief   Enables checks for ILI9341 functions.
+ * @note    Disabling this option saves both code and data space.
+ * @note    Disabling checks by ChibiOS will automatically disable ILI9341
+ *          checks.
+ */
+#if !defined(ILI9341_USE_CHECKS) || defined(__DOXYGEN__)
+#define ILI9341_USE_CHECKS                  TRUE
+#endif
+
+/** @} */
 
 /*===========================================================================*/
 /* Derived constants and error checks.                                       */
 /*===========================================================================*/
+
+#if ILI9341_USE_MUTUAL_EXCLUSION && !CH_USE_MUTEXES && !CH_USE_SEMAPHORES
+#error "ILI9341_USE_MUTUAL_EXCLUSION requires CH_USE_MUTEXES and/or CH_USE_SEMAPHORES"
+#endif
 
 /* TODO: Add the remaining modes.*/
 #if ILI9341_IM != ILI9341_IM_4LSI_1
@@ -151,27 +182,50 @@
 /* Driver data structures and types.                                         */
 /*===========================================================================*/
 
-typedef enum {
+/* Complex types forwarding.*/
+typedef struct ILI9341Config ILI9341Config;
+typedef enum ili9341state_t ili9341state_t;
+typedef struct ILI9341Driver ILI9341Driver;
+
+/**
+ * @brief   ILI9341 driver configuration.
+ */
+typedef struct ILI9341Config {
+  SPIDriver     *spi;                   /**< SPI driver used by ILI9341.*/
+#if ILI9341_IM == ILI9341_IM_4LSI_1
+  ioportid_t    dcx_port;               /**< <tt>D/!C</tt> signal port.*/
+  uint16_t      dcx_pad;                /**< <tt>D/!C</tt> signal pad.*/
+#endif /* ILI9341_IM == * */ /* TODO: Add all modes.*/
+} ILI9341Config;
+
+/**
+ * @brief   ILI9341 driver state.
+ */
+typedef enum ili9341state_t {
   ILI9341_UNINIT = 0,                   /**< Not initialized.*/
   ILI9341_STOP   = 1,                   /**< Stopped.*/
   ILI9341_READY  = 2,                   /**< Ready.*/
   ILI9341_ACTIVE = 3,                   /**< Exchanging data.*/
 } ili9341state_t;
 
-typedef struct {
-  SPIDriver     *spi;
-#if ILI9341_IM == ILI9341_IM_4LSI_1
-  ioportid_t    dcx_port;
-  uint16_t      dcx_pad;
-#endif /* ILI9341_IM == * */
-} ILI9341Config;
+/**
+ * @brief   ILI9341 driver.
+ */
+typedef struct ILI9341Driver {
+  ili9341state_t        state;      /**< Driver state.*/
+  const ILI9341Config   *config;    /**< Driver configuration.*/
 
-typedef struct {
-  ili9341state_t        state;
-  const ILI9341Config   *config;
+  /* Multithreading stuff.*/
+#if ILI9341_USE_MUTUAL_EXCLUSION
+#if CH_USE_MUTEXES
+  Mutex                 lock;       /**< Multithreading lock.*/
+#elif CH_USE_SEMAPHORES
+  Semaphore             lock;       /**< Multithreading lock.*/
+#endif
+#endif /* ILI9341_USE_MUTUAL_EXCLUSION */
 
   /* Temporary variables.*/
-  uint8_t               value;  /**< Non-stacked value, for SPI with CCM.*/
+  uint8_t               value;      /**< Non-stacked value, for SPI with CCM.*/
 } ILI9341Driver;
 
 /**
@@ -181,7 +235,7 @@ typedef struct {
 #pragma pack(push, 1)
 
 typedef union {
-  struct ILI9341ParamBits_GET_ID_INFO_ {
+  struct ILI9341ParamBits_GET_ID_INFO {
     uint8_t reserved_;
     uint8_t ID1;
     uint8_t ID2;
@@ -191,7 +245,7 @@ typedef union {
 } ILI9341Params_GET_ID_INFO;
 
 typedef union {
-  struct ILI9341ParamBits_GET_STATUS_ {
+  struct ILI9341ParamBits_GET_STATUS {
     unsigned  _reserved_1       : 5; /* D[ 4: 0] */
     unsigned  tearing_mode      : 1; /* D[ 5] */
     unsigned  gamma_curve       : 3; /* D[ 8: 6] */
@@ -220,7 +274,7 @@ typedef union {
 } ILI9341Params_GET_STATUS;
 
 typedef union {
-  struct ILI9341ParamBits_GET_PWR_MODE_ {
+  struct ILI9341ParamBits_GET_PWR_MODE {
     unsigned  _reserved_1       : 2; /* D[1:0] */
     unsigned  display           : 1; /* D[2] */
     unsigned  normal            : 1; /* D[3] */
@@ -233,7 +287,7 @@ typedef union {
 } ILI9341Params_GET_PWR_MODE;
 
 typedef union {
-  struct ILI9341ParamBits_GET_MADCTL_ {
+  struct ILI9341ParamBits_GET_MADCTL {
     unsigned  _reserved_1       : 2; /* D[1:0] */
     unsigned  refr_rtl_nltr     : 1; /* D[2] */
     unsigned  bgr_nrgb          : 1; /* D[3] */
@@ -246,7 +300,7 @@ typedef union {
 } ILI9341Params_GET_MADCTL;
 
 typedef union {
-  struct ILI9341ParamBits_GET_PIX_FMT_ {
+  struct ILI9341ParamBits_GET_PIX_FMT {
     unsigned  DBI               : 3; /* D[2:0] */
     unsigned  _reserved_1       : 1; /* D[3] */
     unsigned  DPI               : 3; /* D[6:4] */
@@ -256,7 +310,7 @@ typedef union {
 } ILI9341Params_GET_PIX_FMT;
 
 typedef union {
-  struct ILI9341ParamBits_GET_IMG_FMT_ {
+  struct ILI9341ParamBits_GET_IMG_FMT {
     unsigned  gamma_curve       : 3; /* D[2:0] */
     unsigned  _reserved_1       : 5; /* D[7:3] */
   } bits;
@@ -264,7 +318,7 @@ typedef union {
 } ILI9341Params_GET_IMG_FMT;
 
 typedef union {
-  struct ILI9341ParamBits_GET_SIG_MODE_ {
+  struct ILI9341ParamBits_GET_SIG_MODE {
     unsigned  _reserved_1       : 2; /* D[1:0] */
     unsigned  data_enable       : 1; /* D[2] */
     unsigned  pixel_clock       : 1; /* D[3] */
@@ -277,7 +331,7 @@ typedef union {
 } ILI9341Params_GET_SIG_MODE;
 
 typedef union {
-  struct ILI9341ParamBits_GET_SELF_DIAG_ {
+  struct ILI9341ParamBits_GET_SELF_DIAG {
     unsigned  _reserved_1       : 6; /* D[5:0] */
     unsigned  func_err          : 1; /* D[6] */
     unsigned  reg_err           : 1; /* D[7] */
@@ -286,14 +340,14 @@ typedef union {
 } ILI9341Params_GET_SELF_DIAG;
 
 typedef union {
-  struct ILI9341ParamBits_SET_GAMMA_ {
+  struct ILI9341ParamBits_SET_GAMMA {
     uint8_t   gamma_curve;      /* D[7:0] */
   } bits;
   uint8_t   bytes[1];
 } ILI9341Params_SET_GAMMA;
 
 typedef union {
-  struct ILI9341ParamBits_SET_COL_ADDR_ {
+  struct ILI9341ParamBits_SET_COL_ADDR {
     uint8_t   SC_15_8;          /* D[ 7: 0] */
     uint8_t   SC_7_0;           /* D[15: 8] */
     uint8_t   EC_15_8;          /* D[23:16] */
@@ -303,7 +357,7 @@ typedef union {
 } ILI9341Params_SET_COL_ADDR;
 
 typedef union {
-  struct ILI9341ParamBits_SET_PAGE_ADDR_ {
+  struct ILI9341ParamBits_SET_PAGE_ADDR {
     uint8_t   SP_15_8;          /* D[ 7: 0] */
     uint8_t   SP_7_0;           /* D[15: 8] */
     uint8_t   EP_15_8;          /* D[23:16] */
@@ -313,7 +367,7 @@ typedef union {
 } ILI9341Params_SET_PAGE_ADDR;
 
 typedef union {
-  struct ILI9341ParamBits_SET_PARTIAL_AREA_ {
+  struct ILI9341ParamBits_SET_PARTIAL_AREA {
     uint8_t   SR_15_8;          /* D[ 7: 0] */
     uint8_t   SR_7_0;           /* D[15: 8] */
     uint8_t   ER_15_8;          /* D[23:16] */
@@ -323,7 +377,7 @@ typedef union {
 } ILI9341Params_SET_PARTIAL_AREA;
 
 typedef union {
-  struct ILI9341ParamBits_SET_VSCROLL_ {
+  struct ILI9341ParamBits_SET_VSCROLL {
     uint8_t   TFA_15_8;         /* D[ 7: 0] */
     uint8_t   TFA_7_0;          /* D[15: 8] */
     uint8_t   VSA_15_8;         /* D[23:16] */
@@ -335,7 +389,7 @@ typedef union {
 } ILI9341Params_SET_VSCROLL;
 
 typedef union {
-  struct ILI9341ParamBits_CMD_TEARING_ON_ {
+  struct ILI9341ParamBits_CMD_TEARING_ON {
     unsigned  M                 : 1; /* D[0] */
     unsigned  _reserved_1       : 7; /* D[7:1] */
   } bits;
@@ -343,7 +397,7 @@ typedef union {
 } ILI9341Params_CMD_TEARING_ON;
 
 typedef union {
-  struct ILI9341ParamBits_SET_MEM_ACS_CTL_ {
+  struct ILI9341ParamBits_SET_MEM_ACS_CTL {
     unsigned  _reserved_1       : 2; /* D[1:0] */
     unsigned  MH                : 1; /* D[2] */
     unsigned  BGR               : 1; /* D[3] */
@@ -356,7 +410,7 @@ typedef union {
 } ILI9341Params_SET_MEM_ACS_CTL;
 
 typedef union {
-  struct ILI9341ParamBits_SET_VSCROLL_ADDR_ {
+  struct ILI9341ParamBits_SET_VSCROLL_ADDR {
     uint8_t   VSP_15_8;         /* D[ 7: 0] */
     uint8_t   VSP_7_0;          /* D[15: 8] */
   } bits;
@@ -364,7 +418,7 @@ typedef union {
 } ILI9341Params_SET_VSCROLL_ADDR;
 
 typedef union {
-  struct ILI9341ParamBits_SET_PIX_FMT_ {
+  struct ILI9341ParamBits_SET_PIX_FMT {
     unsigned  DBI               : 3; /* D[2:0] */
     unsigned  _reserved_1       : 1; /* D[3] */
     unsigned  DPI               : 3; /* D[4:6] */
@@ -374,7 +428,7 @@ typedef union {
 } ILI9341Params_SET_PIX_FMT;
 
 typedef union {
-  struct ILI9341ParamBits_SET_TEAR_SCANLINE_ {
+  struct ILI9341ParamBits_SET_TEAR_SCANLINE {
     uint8_t   STS_8;            /* D[ 7: 0] */
     uint8_t   STS_7_0;          /* D[15: 8] */
   } bits;
@@ -382,7 +436,7 @@ typedef union {
 } ILI9341Params_SET_TEAR_SCANLINE;
 
 typedef union {
-  struct ILI9341ParamBits_GET_TEAR_SCANLINE_ {
+  struct ILI9341ParamBits_GET_TEAR_SCANLINE {
     uint8_t   GTS_9_8;          /* D[ 7: 0] */
     uint8_t   GTS_7_0;          /* D[15: 8] */
   } bits;
@@ -390,21 +444,21 @@ typedef union {
 } ILI9341Params_GET_TEAR_SCANLINE;
 
 typedef union {
-  struct ILI9341ParamBits_SET_BRIGHTNESS_ {
+  struct ILI9341ParamBits_SET_BRIGHTNESS {
     uint8_t   DBV;              /* D[7:0] */
   } bits;
   uint8_t   bytes[1];
 } ILI9341Params_SET_BRIGHTNESS;
 
 typedef union {
-  struct ILI9341ParamBits_GET_BRIGHTNESS_ {
+  struct ILI9341ParamBits_GET_BRIGHTNESS {
     uint8_t   DBV;              /* D[7:0] */
   } bits;
   uint8_t   bytes[1];
 } ILI9341Params_GET_BRIGHTNESS;
 
 typedef union {
-  struct ILI9341ParamBits_SET_DISPLAY_CTL_ {
+  struct ILI9341ParamBits_SET_DISPLAY_CTL {
     unsigned  _reserved_1       : 2; /* D[1:0] */
     unsigned  BL                : 1; /* D[2] */
     unsigned  DD                : 1; /* D[3] */
@@ -416,7 +470,7 @@ typedef union {
 } ILI9341Params_SET_DISPLAY_CTL;
 
 typedef union {
-  struct ILI9341ParamBits_GET_DISPLAY_CTL_ {
+  struct ILI9341ParamBits_GET_DISPLAY_CTL {
     unsigned  _reserved_1       : 2; /* D[1:0] */
     unsigned  BL                : 1; /* D[2] */
     unsigned  DD                : 1; /* D[3] */
@@ -428,7 +482,7 @@ typedef union {
 } ILI9341Params_GET_DISPLAY_CTL;
 
 typedef union {
-  struct ILI9341ParamBits_SET_CABC_ {
+  struct ILI9341ParamBits_SET_CABC {
     unsigned  C                 : 2; /* D[1:0] */
     unsigned  _reserved_1       : 6; /* D[7:2] */
   } bits;
@@ -436,7 +490,7 @@ typedef union {
 } ILI9341Params_SET_CABC;
 
 typedef union {
-  struct ILI9341ParamBits_GET_CABC_ {
+  struct ILI9341ParamBits_GET_CABC {
     unsigned  C                 : 2; /* D[1:0] */
     unsigned  _reserved_1       : 6; /* D[7:2] */
   } bits;
@@ -444,14 +498,14 @@ typedef union {
 } ILI9341Params_GET_CABC;
 
 typedef union {
-  struct ILI9341ParamBits_SET_CABC_MIN_ {
+  struct ILI9341ParamBits_SET_CABC_MIN {
     uint8_t   CMB;              /* D[7:0] */
   } bits;
   uint8_t   bytes[1];
 } ILI9341Params_SET_CABC_MIN;
 
 typedef union {
-  struct ILI9341ParamBits_GET_CABC_MIN_ {
+  struct ILI9341ParamBits_GET_CABC_MIN {
     uint8_t   CMB;              /* D[7:0] */
   } bits;
   uint8_t   bytes[1];
@@ -460,7 +514,7 @@ typedef union {
 #if 0 /* TODO: Extended command structs.*/
 
 typedef union {
-  struct ILI9341ParamBits__ {
+  struct ILI9341ParamBits {
     unsigned    : 1; /* D[] */
     unsigned    : 1; /* D[] */
     unsigned    : 1; /* D[] */
@@ -474,7 +528,7 @@ typedef union {
 } ILI9341Params_;
 
 typedef union {
-  struct ILI9341ParamBits__ {
+  struct ILI9341ParamBits {
     unsigned    : 1; /* D[] */
     unsigned    : 1; /* D[] */
     unsigned    : 1; /* D[] */
@@ -490,6 +544,7 @@ typedef union {
 #endif /*0*/
 
 #pragma pack(pop)
+
 /** @} */
 
 /*===========================================================================*/
@@ -500,16 +555,24 @@ typedef union {
 /* External declarations.                                                    */
 /*===========================================================================*/
 
+extern ILI9341Driver ILI9341D1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
   void ili9341ObjectInit(ILI9341Driver *driverp);
-  void ili9341Init(ILI9341Driver *driverp);
   void ili9341Start(ILI9341Driver *driverp, const ILI9341Config *configp);
   void ili9341Stop(ILI9341Driver *driverp);
-
+#if ILI9341_USE_MUTUAL_EXCLUSION
+  void ili9341AcquireBusS(ILI9341Driver *driverp);
+  void ili9341AcquireBus(ILI9341Driver *driverp);
+  void ili9341ReleaseBusS(ILI9341Driver *driverp);
+  void ili9341ReleaseBus(ILI9341Driver *driverp);
+#endif /* ILI9341_USE_MUTUAL_EXCLUSION */
+  void ili9341SelectI(ILI9341Driver *driverp);
   void ili9341Select(ILI9341Driver *driverp);
+  void ili9341UnselectI(ILI9341Driver *driverp);
   void ili9341Unselect(ILI9341Driver *driverp);
   void ili9341WriteCommand(ILI9341Driver *driverp, uint8_t cmd);
   void ili9341WriteByte(ILI9341Driver *driverp, uint8_t value);
