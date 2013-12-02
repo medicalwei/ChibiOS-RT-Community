@@ -205,7 +205,7 @@ SECTIONS
         PROVIDE(_bss_end = .);
     } > ram
     
-    .sdram : ALIGN(4) SUBALIGN(4)
+    .sdram (NOLOAD) : ALIGN(4) SUBALIGN(4)
     {
     	KEEP(*(.sdram))
     	KEEP(*(.sdram.*))
