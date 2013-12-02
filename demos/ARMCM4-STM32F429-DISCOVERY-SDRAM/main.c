@@ -25,8 +25,11 @@
 #include "stmdrivers/stm32f429i_discovery_sdram.h"
 #include "stmdrivers/stm32f4xx_fmc.h"
 
-#include "stm32_ltdc.h"
 #include "ili9341.h"
+#include "stm32_ltdc.h"
+#include "stm32_dma2d.h"
+
+#include "res/wolf3d_vgagraph_chunk87.h"
 
 #define IS42S16400J_SIZE             0x400000
 
@@ -68,7 +71,9 @@ static msg_t Thread2(void *arg) {
 /* LTDC related.                                                             */
 /*===========================================================================*/
 
-static uint8_t frame_buffer[240 * 320];
+static uint8_t frame_buffer[240 * 320 * 3] __attribute__((section(".sdram")));
+
+static uint8_t view_buffer[240 * 320];
 
 extern const ltdc_color_t wolf3d_palette[256];
 
@@ -80,7 +85,7 @@ static const ltdc_window_t window_specs1 = {
 };
 
 static const ltdc_frame_t frame_specs1 = {
-  frame_buffer,
+  view_buffer,
   240,
   320,
   240 * sizeof(uint8_t),
@@ -140,8 +145,6 @@ const ILI9341Config ili9341_cfg = {
   GPIOD_LCD_WRX
 };
 
-ILI9341Driver ILI9341D1;
-
 static void initialize_lcd(void) {
 
   static const uint8_t pgamma[15] = {
@@ -159,8 +162,9 @@ static void initialize_lcd(void) {
   unsigned x, y;
   for (y = 0; y < 320; ++y)
     for (x = 0; x < 240; ++x)
-      frame_buffer[y * 240 + x] = (uint8_t)(x ^ y);
+      view_buffer[y * 240 + x] = (uint8_t)(x ^ y);
 
+  ili9341AcquireBus(lcdp);
   ili9341Select(lcdp);
 
   ili9341WriteCommand(lcdp, ILI9341_SET_FRAME_CTL_NORMAL);
@@ -230,7 +234,81 @@ static void initialize_lcd(void) {
   chThdSleepMilliseconds(10);
 
   ili9341Unselect(lcdp);
+  ili9341ReleaseBus(lcdp);
 }
+
+static const DMA2DConfig dma2d_cfg = {
+  /* ISR callbacks.*/
+  NULL,     /**< Configuration error, or @p NULL.*/
+  NULL,     /**< Palette transfer done, or @p NULL.*/
+  NULL,     /**< Palette access error, or @p NULL.*/
+  NULL,     /**< Transfer watermark, or @p NULL.*/
+  NULL,     /**< Transfer complete, or @p NULL.*/
+  NULL      /**< Transfer error, or @p NULL.*/
+};
+
+static const dma2d_palcfg_t dma2d_palcfg = {
+  wolf3d_palette,
+  256,
+  DMA2D_FMT_RGB888
+};
+
+static const dma2d_laycfg_t dma2d_bg_cfg = {
+  view_buffer,
+  0,
+  DMA2D_FMT_L8,
+  DMA2D_COLOR_FUCHSIA,
+  0xFF,
+  &dma2d_palcfg
+};
+
+static const dma2d_laycfg_t dma2d_fg_cfg = {
+  (void *)wolf3d_vgagraph_chunk87,
+  0,
+  DMA2D_FMT_L8,
+  DMA2D_COLOR_LIME,
+  0xFF,
+  &dma2d_palcfg
+};
+
+static const dma2d_laycfg_t dma2d_out_cfg = {
+  frame_buffer,
+  0,
+  DMA2D_FMT_RGB888,
+  DMA2D_COLOR_BLUE,
+  0xFF,
+  NULL
+};
+
+static void dma2d_test(void) {
+
+  DMA2DDriver *const dma2dp = &DMA2DD1;
+  LTDCDriver *const ltdcp = &LTDCD1;
+
+  chThdSleepSeconds(1);
+
+  ltdcBgSetFrameAddress(ltdcp, (void *)SDRAM_BANK_ADDR);
+  ltdcBgSetPixelFormat(ltdcp, LTDC_FMT_RGB888);
+  ltdcReload(ltdcp, TRUE);
+
+  dma2dAcquireBus(dma2dp);
+  dma2dOutSetConfig(dma2dp, &dma2d_out_cfg);
+
+  /* Copy the background.*/
+  dma2dFgSetConfig(dma2dp, &dma2d_bg_cfg);
+  dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
+  dma2dJobSetSize(dma2dp, 240, 320);
+  dma2dJobExecute(dma2dp);
+
+  /* Draw a picture.*/
+  dma2dFgSetConfig(dma2dp, &dma2d_fg_cfg);
+  dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
+  dma2dJobSetSize(dma2dp, 200, 320);
+  dma2dJobExecute(dma2dp);
+
+  dma2dReleaseBus(dma2dp);
+}
+
 
 /*===========================================================================*/
 /* Command line related.                                                     */
@@ -600,6 +678,11 @@ int main(void) {
   usbConnectBus(serusbcfg.usbp);
 
   /*
+   * Initialise SDRAM, board.h has already configured GPIO correctly (except that ST example uses 50MHz not 100MHz?)
+   */
+  SDRAM_Init();
+
+  /*
    * Activates the LCD-related drivers.
    */
   spiStart(&SPID5, &spi_cfg5);
@@ -608,17 +691,18 @@ int main(void) {
   ltdcStart(&LTDCD1, &ltdc_cfg);
 
   /*
+   * Activates the DMA2D-related drivers.
+   */
+  dma2dStart(&DMA2DD1, &dma2d_cfg);
+  dma2d_test();
+
+  /*
    * Creating the blinker threads.
    */
   chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO + 10,
                     Thread1, NULL);
   chThdCreateStatic(waThread2, sizeof(waThread2), NORMALPRIO + 10,
                     Thread2, NULL);
-
-  /*
-   * Initialise SDRAM, board.h has already configured GPIO correctly (except that ST example uses 50MHz not 100MHz?)
-   */
-  SDRAM_Init();
 
   /*
    * Normal main() thread activity, in this demo it just performs

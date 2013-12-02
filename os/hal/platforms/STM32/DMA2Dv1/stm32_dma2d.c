@@ -21,6 +21,9 @@
 
 #include "ch.h"
 #include "hal.h"
+
+#include "ili9341.h"
+#include "stm32_ltdc.h"
 #include "stm32_dma2d.h"
 
 #if STM32_DMA2D_USE_DMA2D || defined(__DOXYGEN__)
@@ -100,34 +103,6 @@ static const uint8_t dma2d_bpp[11] = {
 /* Driver local functions.                                                   */
 /*===========================================================================*/
 
-/**
- * @brief   Wakes the last thread up.
- * @pre     DMA2D is active.
- * @post    The thread, if any, is set to ready.
- *
- * @notapi
- */
-static void dma2d_job_completion_from_isr(DMA2DDriver *dma2dp) {
-
-  chSysLockFromIsr();
-  chDbgCheck(dma2dp != NULL, "dma2d_job_completion_from_isr");
-  chDbgAssert(dma2dp->state == DMA2D_ACTIVE,
-              "dma2d_job_completion_from_isr(), #1", "invalid state");
-
-#if DMA2D_USE_WAIT
-  /* Wake the waiting thread up.*/
-  if (dma2dp->thread != NULL) {
-    Thread *tp = dma2dp->thread;
-    dma2dp->thread = NULL;
-    tp->p_u.rdymsg = RDY_OK;
-    chSchReadyI(tp);
-  }
-#endif /* DMA2D_USE_WAIT */
-
-  dma2dp->state = DMA2D_READY;
-  chSysUnlockFromIsr();
-}
-
 /*===========================================================================*/
 /* Driver exported functions.                                                */
 /*===========================================================================*/
@@ -196,8 +171,24 @@ CH_IRQ_HANDLER(DMA2D_IRQHandler) {
     DMA2D->IFCR |= DMA2D_IFSR_CTEIF;
   }
 
-  if (job_done)
-    dma2d_job_completion_from_isr(dma2dp);
+  if (job_done) {
+    chSysLockFromIsr();
+    chDbgAssert(dma2dp->state == DMA2D_ACTIVE,
+                "DMA2D_IRQHandler(), #1", "invalid state");
+
+  #if DMA2D_USE_WAIT
+    /* Wake the waiting thread up.*/
+    if (dma2dp->thread != NULL) {
+      Thread *tp = dma2dp->thread;
+      dma2dp->thread = NULL;
+      tp->p_u.rdymsg = RDY_OK;
+      chSchReadyI(tp);
+    }
+  #endif /* DMA2D_USE_WAIT */
+
+    dma2dp->state = DMA2D_READY;
+    chSysUnlockFromIsr();
+  }
 
   CH_IRQ_EPILOGUE();
 }
@@ -313,6 +304,9 @@ void dma2dStart(DMA2DDriver *dma2dp, const DMA2DConfig *configp) {
   DMA2D->CR = 0;
 
   /* Enable interrupts, except Line Watermark.*/
+  nvicEnableVector(STM32_DMA2D_NUMBER,
+                   CORTEX_PRIORITY_MASK(STM32_DMA2D_IRQ_PRIORITY));
+
   DMA2D->CR = DMA2D_CR_CEIE | DMA2D_CR_CTCIE | DMA2D_CR_CAEIE |
               DMA2D_CR_TCIE | DMA2D_CR_TEIE;
 
@@ -1759,6 +1753,8 @@ void dma2dBgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
   DMA2D->BGPFCCR = (DMA2D->BGPFCCR & ~(DMA2D_BGPFCCR_CS | DMA2D_BGPFCCR_CCM)) |
                    ((((uint32_t)palettep->length - 1) << 8) & DMA2D_BGPFCCR_CS)
                    | ((uint32_t)palettep->fmt << 4);
+
+  dma2dp->state = DMA2D_ACTIVE;
   DMA2D->BGPFCCR |= DMA2D_BGPFCCR_START;
 
 #if DMA2D_USE_WAIT
@@ -1844,13 +1840,13 @@ void dma2dBgGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp) {
  *
  * @sclass
  */
-void dma2dBgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
+void dma2dBgSetConfigS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chDbgCheckClassS();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetLayerS");
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dBgSetConfigS");
   chDbgAssert(dma2dp->state == DMA2D_READY,
-              "dma2dBgSetLayerS(), #1", "not ready");
-  chDbgCheck(cfgp != NULL, "dma2dBgSetLayerS");
+              "dma2dBgSetConfigS(), #1", "not ready");
+  chDbgCheck(cfgp != NULL, "dma2dBgSetConfigS");
 
   dma2dBgSetAddressI(dma2dp, cfgp->bufferp);
   dma2dBgSetWrapOffsetI(dma2dp, cfgp->wrap_offset);
@@ -1875,10 +1871,10 @@ void dma2dBgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
  *
  * @api
  */
-void dma2dBgSetLayer(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
+void dma2dBgSetConfig(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chSysLock();
-  dma2dBgSetLayerS(dma2dp, cfgp);
+  dma2dBgSetConfigS(dma2dp, cfgp);
   chSysUnlock();
 }
 
@@ -2436,6 +2432,8 @@ void dma2dFgSetPaletteS(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep) {
   DMA2D->FGPFCCR = (DMA2D->FGPFCCR & ~(DMA2D_FGPFCCR_CS | DMA2D_FGPFCCR_CCM)) |
                    ((((uint32_t)palettep->length - 1) << 8) & DMA2D_FGPFCCR_CS)
                    | ((uint32_t)palettep->fmt << 4);
+
+  dma2dp->state = DMA2D_ACTIVE;
   DMA2D->FGPFCCR |= DMA2D_FGPFCCR_START;
 
 #if DMA2D_USE_WAIT
@@ -2521,13 +2519,13 @@ void dma2dFgGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp) {
  *
  * @sclass
  */
-void dma2dFgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
+void dma2dFgSetConfigS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chDbgCheckClassS();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetLayerS");
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dFgSetConfigS");
   chDbgAssert(dma2dp->state == DMA2D_READY,
-              "dma2dFgSetLayerS(), #1", "not ready");
-  chDbgCheck(cfgp != NULL, "dma2dFgSetLayerS");
+              "dma2dFgSetConfigS(), #1", "not ready");
+  chDbgCheck(cfgp != NULL, "dma2dFgSetConfigS");
 
   dma2dFgSetAddressI(dma2dp, cfgp->bufferp);
   dma2dFgSetWrapOffsetI(dma2dp, cfgp->wrap_offset);
@@ -2552,10 +2550,10 @@ void dma2dFgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
  *
  * @api
  */
-void dma2dFgSetLayer(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
+void dma2dFgSetConfig(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chSysLock();
-  dma2dFgSetLayerS(dma2dp, cfgp);
+  dma2dFgSetConfigS(dma2dp, cfgp);
   chSysUnlock();
 }
 
@@ -2928,13 +2926,13 @@ void dma2dOutGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp) {
  *
  * @iclass
  */
-void dma2dOutSetLayerI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
+void dma2dOutSetConfigI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chDbgCheckClassI();
-  chDbgCheck(dma2dp == &DMA2DD1, "dma2dOutSetLayerS");
+  chDbgCheck(dma2dp == &DMA2DD1, "dma2dOutSetConfigS");
   chDbgAssert(dma2dp->state == DMA2D_READY,
-              "dma2dOutSetLayerI(), #1", "not ready");
-  chDbgCheck(cfgp != NULL, "dma2dOutSetLayerS");
+              "dma2dOutSetConfigI(), #1", "not ready");
+  chDbgCheck(cfgp != NULL, "dma2dOutSetConfigS");
 
   dma2dOutSetAddressI(dma2dp, cfgp->bufferp);
   dma2dOutSetWrapOffsetI(dma2dp, cfgp->wrap_offset);
@@ -2953,10 +2951,10 @@ void dma2dOutSetLayerI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
  *
  * @api
  */
-void dma2dOutSetLayer(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
+void dma2dOutSetConfig(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp) {
 
   chSysLock();
-  dma2dOutSetLayerI(dma2dp, cfgp);
+  dma2dOutSetConfigI(dma2dp, cfgp);
   chSysUnlock();
 }
 

@@ -42,10 +42,10 @@
  * @name    DMA2D job modes
  * @{
  */
-#define DMA2D_JOB_COPY          (0 << 16)   /**< Exact copy (FG only).*/
-#define DMA2D_JOB_CONV          (1 << 16)   /**< Copy, convert (FG + PFC).*/
+#define DMA2D_JOB_COPY          (0 << 16)   /**< Copy, replace(FG only).*/
+#define DMA2D_JOB_CONVERT       (1 << 16)   /**< Copy, convert (FG + PFC).*/
 #define DMA2D_JOB_BLEND         (2 << 16)   /**< Copy, blend (FG + BG + PFC).*/
-#define DMA2D_JOB_CONST         (3 << 16)   /**< Constant value (REG only).*/
+#define DMA2D_JOB_CONST         (3 << 16)   /**< Default color only (FG REG).*/
 /** @} */
 
 /**
@@ -168,10 +168,25 @@
 /* Driver pre-compile time settings.                                         */
 /*===========================================================================*/
 
-/**
- * @brief   The device has the DMA2D peripheral.
+/*
+ * These definitions should already be defined by stm32_isr.h
  */
-#if !defined(STM32_HAS_DMA2D) || defined(__DOXYGEN__)
+#if !defined(STM32_DMA2D_HANDLER) && !defined(__DOXYGEN__)
+#define STM32_DMA2D_HANDLER                 DMA2D_IRQHandler
+#endif
+
+#if !defined(STM32_DMA2D_NUMBER) && !defined(__DOXYGEN__)
+#define STM32_DMA2D_NUMBER                  DMA2D_IRQn
+#endif
+
+/*
+ * These definitions should already be defined by hal_lld.h
+ */
+#if !defined(DMA2D_IRQHandler) && !defined(__DOXYGEN__)
+#define DMA2D_IRQHandler                    Vector1A8
+#endif
+
+#if !defined(STM32_HAS_DMA2D) && !defined(__DOXYGEN__)
 #ifdef STM32F429_439xx
 #define STM32_HAS_DMA2D                     TRUE
 #else
@@ -180,7 +195,7 @@
 #endif
 
 /**
- * @name    Configuration options
+ * @name    DMA2D configuration options
  * @{
  */
 
@@ -253,7 +268,7 @@
 /* Complex types forwarding.*/
 typedef union dma2d_coloralias_t dma2d_coloralias_t;
 typedef struct dma2d_palcfg_t dma2d_palcfg_t;
-typedef struct dma2d_layercfg_t dma2d_layercfg_t;
+typedef struct dma2d_laycfg_t dma2d_layercfg_t;
 typedef struct DMA2DConfig DMA2DConfig;
 typedef enum dma2d_state_t dma2d_state_t;
 typedef struct DMA2DDriver DMA2DDriver;
@@ -593,8 +608,8 @@ extern "C" {
   void dma2dBgSetPalette(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep);
   void dma2dBgGetLayerI(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp);
   void dma2dBgGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp);
-  void dma2dBgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
-  void dma2dBgSetLayer(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
+  void dma2dBgSetConfigS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
+  void dma2dBgSetConfig(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
 
   /* Foreground layer methods.*/
   void *dma2dFgGetAddressI(DMA2DDriver *dma2dp);
@@ -627,8 +642,8 @@ extern "C" {
   void dma2dFgSetPalette(DMA2DDriver *dma2dp, const dma2d_palcfg_t *palettep);
   void dma2dFgGetLayerI(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp);
   void dma2dFgGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp);
-  void dma2dFgSetLayerS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
-  void dma2dFgSetLayer(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
+  void dma2dFgSetConfigS(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
+  void dma2dFgSetConfig(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
 
   /* Output layer methods.*/
   void *dma2dOutGetAddressI(DMA2DDriver *dma2dp);
@@ -649,8 +664,8 @@ extern "C" {
   void dma2dOutSetDefaultColor(DMA2DDriver *dma2dp, dma2d_color_t c);
   void dma2dOutGetLayerI(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp);
   void dma2dOutGetLayer(DMA2DDriver *dma2dp, dma2d_laycfg_t *cfgp);
-  void dma2dOutSetLayerI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
-  void dma2dOutSetLayer(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
+  void dma2dOutSetConfigI(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
+  void dma2dOutSetConfig(DMA2DDriver *dma2dp, const dma2d_laycfg_t *cfgp);
 
   /* Helper functions.*/
   const void *dma2dComputeAddressConst(const void *originp, size_t pitch,
