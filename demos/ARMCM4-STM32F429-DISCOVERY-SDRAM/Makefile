@@ -73,7 +73,8 @@ include $(CHIBIOS)/os/kernel/kernel.mk
 include $(CHIBIOS)/test/test.mk
 
 # Define linker script file here
-LDSCRIPT= $(PORTLD)/STM32F429xI.ld
+#LDSCRIPT = $(PORTLD)/STM32F429xI.ld
+LDSCRIPT = ./STM32F429xI_segmented.ld
 
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -89,7 +90,9 @@ CSRC = $(PORTSRC) \
        usbcfg.c \
        main.c \
        wolf3d_palette.c \
-       ili9341.c
+       ili9341.c \
+       res/wolf3d_vgagraph_chunk87.c \
+       # EOL
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -121,7 +124,8 @@ ASMSRC = $(PORTASM)
 INCDIR = $(PORTINC) $(KERNINC) $(TESTINC) \
          $(HALINC) $(PLATFORMINC) $(BOARDINC) \
          $(CHIBIOS)/os/various/devices_lib/accel \
-         $(CHIBIOS)/os/various
+         $(CHIBIOS)/os/various \
+         # EOL
 
 #
 # Project, sources and paths
