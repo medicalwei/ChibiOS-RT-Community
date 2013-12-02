@@ -203,10 +203,37 @@
 /* Driver pre-compile time settings.                                         */
 /*===========================================================================*/
 
-/**
- * @brief   The device has the LTDC peripheral.
+/*
+ * These definitions should already be defined by stm32_isr.h
  */
-#if !defined(STM32_HAS_LTDC) || defined(__DOXYGEN__)
+#if !defined(STM32_LTDC_EV_HANDLER) && !defined(__DOXYGEN__)
+#define STM32_LTDC_EV_HANDLER               LTDC_EV_IRQHandler
+#endif
+
+#if !defined(STM32_LTDC_ER_HANDLER) && !defined(__DOXYGEN__)
+#define STM32_LTDC_ER_HANDLER               LTDC_ER_IRQHandler
+#endif
+
+#if !defined(STM32_LTDC_EV_NUMBER) && !defined(__DOXYGEN__)
+#define STM32_LTDC_EV_NUMBER                LTDC_IRQn
+#endif
+
+#if !defined(STM32_LTDC_ER_NUMBER) && !defined(__DOXYGEN__)
+#define STM32_LTDC_ER_NUMBER                LTDC_ER_IRQn
+#endif
+
+/*
+ * These definitions should already be defined by hal_lld.h
+ */
+#if !defined(LTDC_EV_IRQHandler) && !defined(__DOXYGEN__)
+#define LTDC_EV_IRQHandler                  Vector1A0
+#endif
+
+#if !defined(LTDC_ER_IRQHandler) && !defined(__DOXYGEN__)
+#define LTDC_ER_IRQHandler                  Vector1A4
+#endif
+
+#if !defined(STM32_HAS_LTDC) && !defined(__DOXYGEN__)
 #ifdef STM32F429_439xx
 #define STM32_HAS_LTDC                      TRUE
 #else
@@ -215,7 +242,7 @@
 #endif
 
 /**
- * @name    Configuration options
+ * @name    LTDC configuration options
  * @{
  */
 
@@ -255,6 +282,15 @@
  */
 #if !defined(LTDC_USE_SOFTWARE_CONVERSIONS) || defined(__DOXYGEN__)
 #define LTDC_USE_SOFTWARE_CONVERSIONS       TRUE
+#endif
+
+/**
+ * @brief   Enables checks for LTDC functions.
+ * @note    Disabling this option saves both code and data space.
+ * @note    Disabling checks by ChibiOS will automatically disable LTDC checks.
+ */
+#if !defined(LTDC_USE_CHECKS) || defined(__DOXYGEN__)
+#define LTDC_USE_CHECKS                     TRUE
 #endif
 
 /** @} */
@@ -653,8 +689,8 @@ extern "C" {
   void ltdcBgSetFrameAddress(LTDCDriver *ltdcp, void *bufferp);
   void ltdcBgGetLayerI(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
   void ltdcBgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
-  void ltdcBgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
-  void ltdcBgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+  void ltdcBgSetConfigI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+  void ltdcBgSetConfig(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
 
   /* Foreground layer methods.*/
   ltdc_flags_t ltdcFgGetEnableFlagsI(LTDCDriver *ltdcp);
@@ -721,8 +757,8 @@ extern "C" {
   void ltdcFgSetFrameAddress(LTDCDriver *ltdcp, void *bufferp);
   void ltdcFgGetLayerI(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
   void ltdcFgGetLayer(LTDCDriver *ltdcp, ltdc_laycfg_t *cfgp);
-  void ltdcFgSetLayerI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
-  void ltdcFgSetLayer(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+  void ltdcFgSetConfigI(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
+  void ltdcFgSetConfig(LTDCDriver *ltdcp, const ltdc_laycfg_t *cfgp);
 
   /* Helper functions.*/
   size_t ltdcBitsPerPixel(ltdc_pixfmt_t fmt);
