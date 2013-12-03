@@ -140,8 +140,6 @@ const ILI9341Config ili9341_cfg = {
   GPIOD_LCD_WRX
 };
 
-ILI9341Driver ILI9341D1;
-
 static void initialize_lcd(void) {
 
   static const uint8_t pgamma[15] = {
