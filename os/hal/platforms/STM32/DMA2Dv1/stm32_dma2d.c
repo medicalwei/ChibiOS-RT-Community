@@ -1290,7 +1290,7 @@ void dma2dBgSetAddress(DMA2DDriver *dma2dp, void *bufferp) {
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
- * @return              wrap offset, in bytes
+ * @return              wrap offset, in pixels
  *
  * @iclass
  */
@@ -1309,7 +1309,7 @@ size_t dma2dBgGetWrapOffsetI(DMA2DDriver *dma2dp) {
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
- * @return              wrap offset, in bytes
+ * @return              wrap offset, in pixels
  *
  * @api
  */
@@ -1328,7 +1328,7 @@ size_t dma2dBgGetWrapOffset(DMA2DDriver *dma2dp) {
  * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
- * @param[in] offset    wrap offset, in bytes
+ * @param[in] offset    wrap offset, in pixels
  *
  * @iclass
  */
@@ -1352,7 +1352,7 @@ void dma2dBgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
  * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
- * @param[in] offset    wrap offset, in bytes
+ * @param[in] offset    wrap offset, in pixels
  *
  * @api
  */
@@ -1969,7 +1969,7 @@ void dma2dFgSetAddress(DMA2DDriver *dma2dp, void *bufferp) {
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
- * @return              wrap offset, in bytes
+ * @return              wrap offset, in pixels
  *
  * @iclass
  */
@@ -1988,7 +1988,7 @@ size_t dma2dFgGetWrapOffsetI(DMA2DDriver *dma2dp) {
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
- * @return              wrap offset, in bytes
+ * @return              wrap offset, in pixels
  *
  * @api
  */
@@ -2007,7 +2007,7 @@ size_t dma2dFgGetWrapOffset(DMA2DDriver *dma2dp) {
  * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
- * @param[in] offset    wrap offset, in bytes
+ * @param[in] offset    wrap offset, in pixels
  *
  * @iclass
  */
@@ -2031,7 +2031,7 @@ void dma2dFgSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
  * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
- * @param[in] offset    wrap offset, in bytes
+ * @param[in] offset    wrap offset, in pixels
  *
  * @api
  */
@@ -2648,7 +2648,7 @@ void dma2dOutSetAddress(DMA2DDriver *dma2dp, void *bufferp) {
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
- * @return              wrap offset, in bytes
+ * @return              wrap offset, in pixels
  *
  * @iclass
  */
@@ -2667,7 +2667,7 @@ size_t dma2dOutGetWrapOffsetI(DMA2DDriver *dma2dp) {
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
  *
- * @return              wrap offset, in bytes
+ * @return              wrap offset, in pixels
  *
  * @api
  */
@@ -2686,7 +2686,7 @@ size_t dma2dOutGetWrapOffset(DMA2DDriver *dma2dp) {
  * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
- * @param[in] offset    wrap offset, in bytes
+ * @param[in] offset    wrap offset, in pixels
  *
  * @iclass
  */
@@ -2710,7 +2710,7 @@ void dma2dOutSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset) {
  * @pre     DMA2D is ready.
  *
  * @param[in] dma2dp    pointer to the @p DMA2DDriver object
- * @param[in] offset    wrap offset, in bytes
+ * @param[in] offset    wrap offset, in pixels
  *
  * @api
  */
@@ -3012,51 +3012,6 @@ const void *dma2dComputeAddressConst(const void *originp, size_t pitch,
   default:
     chDbgAssert(FALSE, "dma2dComputeAddressConst(), #2", "invalid format");
     return NULL;
-  }
-}
-
-/**
- * @brief   Compute wrap offset.
- * @details Computes the buffer line wrap offset.
- *
- * @param[in] width     buffer width, in pixels
- * @param[in] pitch     buffer pitch, in bytes
- * @param[in] fmt       buffer pixel format
- *
- * @return              wrap offset
- *
- * @api
- */
-size_t dma2dComputeWrapOffset(uint16_t width, size_t pitch,
-                              dma2d_pixfmt_t fmt) {
-
-  chDbgCheck(width > 0, "dma2dComputeWrapOffset");
-  chDbgCheck(pitch > 0, "dma2dComputeWrapOffset");
-  chDbgAssert((size_t)width <= pitch,
-              "dma2dComputeWrapOffset(), #1", "outside range");
-
-  switch (fmt) {
-  case DMA2D_FMT_ARGB8888:
-    return pitch - (size_t)width * 4;
-  case DMA2D_FMT_RGB888:
-    return pitch - (size_t)width * 3;
-  case DMA2D_FMT_RGB565:
-  case DMA2D_FMT_ARGB1555:
-  case DMA2D_FMT_ARGB4444:
-  case DMA2D_FMT_AL88:
-    return pitch - (size_t)width * 2;
-  case DMA2D_FMT_L8:
-  case DMA2D_FMT_AL44:
-  case DMA2D_FMT_A8:
-    return pitch - (size_t)width;
-  case DMA2D_FMT_L4:
-  case DMA2D_FMT_A4:
-    chDbgAssert((width & 1) == 0,
-                "dma2dComputeWrapOffset(), #2", "not aligned");
-    return pitch - (size_t)width / 2;
-  default:
-    chDbgAssert(FALSE, "dma2dComputeWrapOffset(), #3", "invalid format");
-    return 0;
   }
 }
 

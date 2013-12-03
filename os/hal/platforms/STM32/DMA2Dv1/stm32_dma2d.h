@@ -400,7 +400,7 @@ typedef struct dma2d_palcfg_t {
  */
 typedef struct dma2d_layercfg_t {
   void                  *bufferp;       /**< Frame buffer address.*/
-  size_t                wrap_offset;    /**< Offset between lines, in bytes.*/
+  size_t                wrap_offset;    /**< Offset between lines, in pixels.*/
   dma2d_pixfmt_t        fmt;            /**< Pixel format.*/
   dma2d_color_t         def_color;      /**< Default color, RGB-888.*/
   uint8_t               const_alpha;    /**< Constant alpha factor.*/
@@ -671,8 +671,6 @@ extern "C" {
   const void *dma2dComputeAddressConst(const void *originp, size_t pitch,
                                        dma2d_pixfmt_t fmt,
                                        uint16_t x, uint16_t y);
-  size_t dma2dComputeWrapOffset(uint16_t width, size_t pitch,
-                                dma2d_pixfmt_t fmt);
   bool_t dma2dIsAligned(const void *bufferp, dma2d_pixfmt_t fmt);
   size_t dma2dBitsPerPixel(dma2d_pixfmt_t fmt);
 #if DMA2D_USE_SOFTWARE_CONVERSIONS || defined(__DOXYGEN__)
