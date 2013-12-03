@@ -34,6 +34,17 @@
 #define IS42S16400J_SIZE             0x400000
 
 /*
+ * Erases the whole SDRAM bank.
+ */
+static void sdram_bulk_erase(void) {
+
+  volatile uint8_t *p = (volatile uint8_t *)SDRAM_BANK_ADDR;
+  volatile uint8_t *end = p + IS42S16400J_SIZE;
+  while (p < end)
+    *p++ = 0;
+}
+
+/*
  * Red LED blinker thread, times are in milliseconds.
  */
 static WORKING_AREA(waThread1, 128);
@@ -77,14 +88,14 @@ static uint8_t view_buffer[240 * 320];
 
 extern const ltdc_color_t wolf3d_palette[256];
 
-static const ltdc_window_t window_specs1 = {
+static const ltdc_window_t ltdc_fullscreen_wincfg = {
   0,
   240 - 1,
   0,
   320 - 1
 };
 
-static const ltdc_frame_t frame_specs1 = {
+static const ltdc_frame_t ltdc_view_frmcfg1 = {
   view_buffer,
   240,
   320,
@@ -92,9 +103,9 @@ static const ltdc_frame_t frame_specs1 = {
   LTDC_FMT_L8
 };
 
-static const ltdc_laycfg_t ltdc_laycfg1 = {
-  &frame_specs1,
-  &window_specs1,
+static const ltdc_laycfg_t ltdc_view_laycfg1 = {
+  &ltdc_view_frmcfg1,
+  &ltdc_fullscreen_wincfg,
   LTDC_COLOR_FUCHSIA,
   0xFF,
   0x980088,
@@ -102,6 +113,26 @@ static const ltdc_laycfg_t ltdc_laycfg1 = {
   256,
   LTDC_BLEND_FIX1_FIX2,
   LTDC_LEF_ENABLE | LTDC_LEF_PALETTE
+};
+
+static const ltdc_frame_t ltdc_screen_frmcfg1 = {
+  frame_buffer,
+  240,
+  320,
+  240 * 3,
+  LTDC_FMT_RGB888
+};
+
+static const ltdc_laycfg_t ltdc_screen_laycfg1 = {
+  &ltdc_screen_frmcfg1,
+  &ltdc_fullscreen_wincfg,
+  LTDC_COLOR_FUCHSIA,
+  0xFF,
+  0x980088,
+  NULL,
+  0,
+  LTDC_BLEND_FIX1_FIX2,
+  LTDC_LEF_ENABLE
 };
 
 static const LTDCConfig ltdc_cfg = {
@@ -124,7 +155,7 @@ static const LTDCConfig ltdc_cfg = {
 
   /* Color and layer settings.*/
   LTDC_COLOR_TEAL,
-  &ltdc_laycfg1,
+  &ltdc_view_laycfg1,
   NULL
 };
 
@@ -250,10 +281,10 @@ static const DMA2DConfig dma2d_cfg = {
 static const dma2d_palcfg_t dma2d_palcfg = {
   wolf3d_palette,
   256,
-  DMA2D_FMT_RGB888
+  DMA2D_FMT_ARGB8888
 };
 
-static const dma2d_laycfg_t dma2d_bg_cfg = {
+static const dma2d_laycfg_t dma2d_bg_laycfg = {
   view_buffer,
   0,
   DMA2D_FMT_L8,
@@ -262,7 +293,7 @@ static const dma2d_laycfg_t dma2d_bg_cfg = {
   &dma2d_palcfg
 };
 
-static const dma2d_laycfg_t dma2d_fg_cfg = {
+static const dma2d_laycfg_t dma2d_fg_laycfg = {
   (void *)wolf3d_vgagraph_chunk87,
   0,
   DMA2D_FMT_L8,
@@ -271,7 +302,7 @@ static const dma2d_laycfg_t dma2d_fg_cfg = {
   &dma2d_palcfg
 };
 
-static const dma2d_laycfg_t dma2d_out_cfg = {
+static const dma2d_laycfg_t dma2d_frame_laycfg = {
   frame_buffer,
   0,
   DMA2D_FMT_RGB888,
@@ -287,21 +318,23 @@ static void dma2d_test(void) {
 
   chThdSleepSeconds(1);
 
-  ltdcBgSetFrameAddress(ltdcp, (void *)SDRAM_BANK_ADDR);
-  ltdcBgSetPixelFormat(ltdcp, LTDC_FMT_RGB888);
+  ltdcBgSetConfig(ltdcp, &ltdc_screen_laycfg1);
   ltdcReload(ltdcp, TRUE);
 
   dma2dAcquireBus(dma2dp);
-  dma2dOutSetConfig(dma2dp, &dma2d_out_cfg);
+  dma2dBgSetConfig(dma2dp, &dma2d_frame_laycfg);
+  dma2dOutSetConfig(dma2dp, &dma2d_frame_laycfg);
 
   /* Copy the background.*/
-  dma2dFgSetConfig(dma2dp, &dma2d_bg_cfg);
+  dma2dFgSetConfig(dma2dp, &dma2d_bg_laycfg);
   dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
   dma2dJobSetSize(dma2dp, 240, 320);
   dma2dJobExecute(dma2dp);
 
   /* Draw a picture.*/
-  dma2dFgSetConfig(dma2dp, &dma2d_fg_cfg);
+  dma2dFgSetConfig(dma2dp, &dma2d_fg_laycfg);
+  dma2dOutSetAddress(dma2dp, frame_buffer + 3 * 8);
+  dma2dOutSetWrapOffset(dma2dp, ltdc_screen_frmcfg1.pitch - 200);
   dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
   dma2dJobSetSize(dma2dp, 200, 320);
   dma2dJobExecute(dma2dp);
@@ -429,7 +462,7 @@ static void cmd_erase(BaseSequentialStream *chp, int argc, char *argv[]) {
 
   tmObjectInit(&tm);
 
-  tmStartMeasurement(&tm);
+  //XXX tmStartMeasurement(&tm);
 
   /* Write data value to all SDRAM memory */
   /* Erase SDRAM memory */
@@ -438,8 +471,8 @@ static void cmd_erase(BaseSequentialStream *chp, int argc, char *argv[]) {
     *(__IO uint8_t*) (SDRAM_BANK_ADDR + counter) = (uint8_t)0x0;
   }
 
-  tmStopMeasurement(&tm);
-  uint32_t write_ms = RTT2MS(tm.last);
+  //XXX tmStopMeasurement(&tm);
+  uint32_t write_ms = 0;//XXX RTT2MS(tm.last);
 
   if (!uwReadwritestatus) {
     chprintf(chp, "SDRAM erased in %dms.\r\n", write_ms);
@@ -681,6 +714,7 @@ int main(void) {
    * Initialise SDRAM, board.h has already configured GPIO correctly (except that ST example uses 50MHz not 100MHz?)
    */
   SDRAM_Init();
+  sdram_bulk_erase();
 
   /*
    * Activates the LCD-related drivers.

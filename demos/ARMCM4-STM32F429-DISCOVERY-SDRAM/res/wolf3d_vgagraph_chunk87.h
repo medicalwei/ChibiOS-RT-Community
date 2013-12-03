@@ -4,6 +4,6 @@
 
 /* Contents of file chunk87.bin */
 #define wolf3d_vgagraph_chunk87_size 64000
-extern const unsigned char wolf3d_vgagraph_chunk87[wolf3d_vgagraph_chunk87_size];
+extern const unsigned char wolf3d_vgagraph_chunk87[64000];
 
 #endif    /* __wolf3d_vgagraph_chunk87_h_included */

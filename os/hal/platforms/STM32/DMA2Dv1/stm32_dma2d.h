@@ -650,10 +650,10 @@ extern "C" {
   void *dma2dOutGetAddress(DMA2DDriver *dma2dp);
   void dma2dOutSetAddressI(DMA2DDriver *dma2dp, void *bufferp);
   void dma2dOutSetAddress(DMA2DDriver *dma2dp, void *bufferp);
-  size_t dma2dOutGetOffsetI(DMA2DDriver *dma2dp);
-  size_t dma2dOutGetOffset(DMA2DDriver *dma2dp);
-  void dma2dOutSetOffsetI(DMA2DDriver *dma2dp, size_t offset);
-  void dma2dOutSetOffset(DMA2DDriver *dma2dp, size_t offset);
+  size_t dma2dOutGetWrapOffsetI(DMA2DDriver *dma2dp);
+  size_t dma2dOutGetWrapOffset(DMA2DDriver *dma2dp);
+  void dma2dOutSetWrapOffsetI(DMA2DDriver *dma2dp, size_t offset);
+  void dma2dOutSetWrapOffset(DMA2DDriver *dma2dp, size_t offset);
   dma2d_pixfmt_t dma2dOutGetPixelFormatI(DMA2DDriver *dma2dp);
   dma2d_pixfmt_t dma2dOutGetPixelFormat(DMA2DDriver *dma2dp);
   void dma2dOutSetPixelFormatI(DMA2DDriver *dma2dp, dma2d_pixfmt_t fmt);
