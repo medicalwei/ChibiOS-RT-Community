@@ -597,10 +597,8 @@ extern "C" {
   bool_t ltdcIsReloading(LTDCDriver *ltdcp);
   void ltdcStartReloadI(LTDCDriver *ltdcp, bool_t immediately);
   void ltdcStartReload(LTDCDriver *ltdcp, bool_t immediately);
-#if LTDC_USE_WAIT
   void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately);
   void ltdcReload(LTDCDriver *ltdcp, bool_t immediately);
-#endif /* LTDC_USE_WAIT */
   bool_t ltdcIsDitheringEnabledI(LTDCDriver *ltdcp);
   bool_t ltdcIsDitheringEnabled(LTDCDriver *ltdcp);
   void ltdcEnableDitheringI(LTDCDriver *ltdcp);
