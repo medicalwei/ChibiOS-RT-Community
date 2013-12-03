@@ -288,7 +288,7 @@ static const dma2d_laycfg_t dma2d_bg_laycfg = {
   view_buffer,
   0,
   DMA2D_FMT_L8,
-  DMA2D_COLOR_FUCHSIA,
+  DMA2D_COLOR_RED,
   0xFF,
   &dma2d_palcfg
 };
@@ -322,7 +322,10 @@ static void dma2d_test(void) {
   ltdcReload(ltdcp, TRUE);
 
   dma2dAcquireBus(dma2dp);
+
+  /* Target the frame buffer by default.*/
   dma2dBgSetConfig(dma2dp, &dma2d_frame_laycfg);
+  dma2dFgSetConfig(dma2dp, &dma2d_frame_laycfg);
   dma2dOutSetConfig(dma2dp, &dma2d_frame_laycfg);
 
   /* Copy the background.*/
@@ -331,10 +334,12 @@ static void dma2d_test(void) {
   dma2dJobSetSize(dma2dp, 240, 320);
   dma2dJobExecute(dma2dp);
 
-  /* Draw a picture.*/
+  /* Draw the splashscren picture at (8, 0).*/
   dma2dFgSetConfig(dma2dp, &dma2d_fg_laycfg);
-  dma2dOutSetAddress(dma2dp, frame_buffer + 3 * 8);
-  dma2dOutSetWrapOffset(dma2dp, ltdc_screen_frmcfg1.pitch - 200);
+  dma2dOutSetAddress(dma2dp, dma2dComputeAddress(
+    frame_buffer, ltdc_screen_frmcfg1.pitch, DMA2D_FMT_RGB888, 8, 0
+  ));
+  dma2dOutSetWrapOffset(dma2dp, ltdc_screen_frmcfg1.width - 200);
   dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
   dma2dJobSetSize(dma2dp, 200, 320);
   dma2dJobExecute(dma2dp);
