@@ -94,6 +94,13 @@ void ili9341ObjectInit(ILI9341Driver *driverp) {
 
   driverp->state = ILI9341_STOP;
   driverp->config = NULL;
+#if ILI9341_USE_MUTUAL_EXCLUSION
+#if CH_USE_MUTEXES
+  chMtxInit(&driverp->lock);
+#else
+  chSemInit(&driverp->lock, 1);
+#endif
+#endif /* ILI9341_USE_MUTUAL_EXCLUSION */
 }
 
 /**
