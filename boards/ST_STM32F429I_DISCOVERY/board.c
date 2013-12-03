@@ -21,8 +21,9 @@
 #include "ch.h"
 #include "hal.h"
 
-#include "stm32_ltdc.h"
 #include "ili9341.h"
+#include "stm32_ltdc.h"
+#include "stm32_dma2d.h"
 
 extern ILI9341Driver ILI9341D1;
 
@@ -119,6 +120,9 @@ void boardInit(void) {
   ltdcInit();
 #endif
 
+#if STM32_DMA2D_USE_DMA2D
+  dma2dInit();
+#endif
+
   ili9341ObjectInit(&ILI9341D1);
-  ili9341Init(&ILI9341D1);
 }

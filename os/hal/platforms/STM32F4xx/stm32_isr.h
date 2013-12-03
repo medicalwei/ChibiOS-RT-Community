@@ -123,7 +123,6 @@
 #define STM32_UART4_NUMBER          UART4_IRQn
 #define STM32_UART5_NUMBER          UART5_IRQn
 #define STM32_USART6_NUMBER         USART6_IRQn
-/** @} */
 
 /*
  * LTDC unit.
@@ -133,6 +132,13 @@
 
 #define STM32_LTDC_EV_NUMBER        LTDC_IRQn
 #define STM32_LTDC_ER_NUMBER        LTDC_ER_IRQn
+
+/*
+ * DMA2D unit.
+ */
+#define STM32_DMA2D_HANDLER         DMA2D_IRQHandler
+
+#define STM32_DMA2D_NUMBER          DMA2D_IRQn
 /** @} */
 
 /*===========================================================================*/
