@@ -92,6 +92,22 @@ void ili9341ObjectInit(ILI9341Driver *driverp) {
 
   chDbgCheck(driverp != NULL, "ili9341ObjectInit");
 
+  driverp->state = ILI9341_UNINIT;
+  driverp->config = NULL;
+#if ILI9341_USE_MUTUAL_EXCLUSION
+#if CH_USE_MUTEXES
+  chMtxInit(&driverp->lock);
+#else
+  chSemInit(&driverp->lock, 1);
+#endif
+#endif /* ILI9341_USE_MUTUAL_EXCLUSION */
+}
+
+void ili9341Init(ILI9341Driver *driverp) {
+
+  chDbgCheck(driverp != NULL, "ili9341Init");
+  chDbgCheck(driverp->state == ILI9341_UNINIT, "ili9341Init");
+
   driverp->state = ILI9341_STOP;
   driverp->config = NULL;
 #if ILI9341_USE_MUTUAL_EXCLUSION
@@ -250,7 +266,7 @@ void ili9341ReleaseBus(ILI9341Driver *driverp) {
 void ili9341SelectI(ILI9341Driver *driverp) {
 
   chDbgCheckClassI();
-  chDbgCheck((driverp != NULL), "ili9341SelectI");
+  chDbgCheck(driverp != NULL, "ili9341SelectI");
   chDbgAssert(driverp->state == ILI9341_READY,
               "ili9341SelectI(), #1", "invalid state");
 
@@ -285,7 +301,7 @@ void ili9341Select(ILI9341Driver *driverp) {
 void ili9341UnselectI(ILI9341Driver *driverp) {
 
   chDbgCheckClassI();
-  chDbgCheck((driverp != NULL), "ili9341Unselect");
+  chDbgCheck(driverp != NULL, "ili9341Unselect");
   chDbgAssert(driverp->state == ILI9341_ACTIVE,
               "ili9341UnselectI(), #1", "invalid state");
 

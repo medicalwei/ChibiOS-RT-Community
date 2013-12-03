@@ -511,7 +511,7 @@ void ltdcStop(LTDCDriver *ltdcp) {
 #if LTDC_USE_WAIT
   ltdcReloadS(ltdcp, TRUE);
 #else
-  ltdcStartReloadI(ltdcp);
+  ltdcStartReloadI(ltdcp, TRUE);
   while (ltdcIsReloadingI(ltdcp))
     chSchDoYieldS();
 #endif /* LTDC_USE_WAIT */
@@ -761,8 +761,6 @@ void ltdcStartReload(LTDCDriver *ltdcp, bool_t immediately) {
   chSysUnlock();
 }
 
-#if LTDC_USE_WAIT
-
 /**
  * @brief   Reload shadow registers.
  * @details Reloads LTDC shadow registers, upon vsync or immediately.
@@ -776,10 +774,13 @@ void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately) {
 
   chDbgCheckClassS();
   chDbgCheck(ltdcp == &LTDCD1, "ltdcReloadS");
+
+  ltdcStartReloadI(ltdcp, immediately);
+
+#if LTDC_USE_WAIT
   chDbgAssert(ltdcp->thread == NULL,
               "ltdcReloadS(), #1", "already waiting");
 
-  ltdcStartReloadI(ltdcp, immediately);
   if (immediately) {
     while (LTDC->SRCR & LTDC_SRCR_IMR)
       chSchDoYieldS();
@@ -788,6 +789,11 @@ void ltdcReloadS(LTDCDriver *ltdcp, bool_t immediately) {
     ltdcp->thread = chThdSelf();
     chSchGoSleepS(THD_STATE_SUSPENDED);
   }
+#else
+  while (LTDC->SRCR & LTDC_SRCR_IMR)
+    chSchDoYieldS();
+  ltdcp->state = LTDC_READY;
+#endif
 }
 
 /**
@@ -805,8 +811,6 @@ void ltdcReload(LTDCDriver *ltdcp, bool_t immediately) {
   ltdcReloadS(ltdcp, immediately);
   chSysUnlock();
 }
-
-#endif /* LTDC_USE_WAIT */
 
 /**
  * @brief   Dithering enabled.
