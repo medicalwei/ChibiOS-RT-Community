@@ -22,14 +22,12 @@
 #include "ch.h"
 #include "hal.h"
 
-#include "ili9341.h"
-#include "stm32_ltdc.h"
 #include "stm32_dma2d.h"
 
 #if STM32_DMA2D_USE_DMA2D || defined(__DOXYGEN__)
 
 /* Ignore annoying warning messages for actually safe code.*/
-#if __GNUC__
+#if defined(__GNUC__) && !defined(__DOXYGEN__)
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #endif
 

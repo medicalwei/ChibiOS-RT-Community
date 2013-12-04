@@ -21,6 +21,7 @@
 
 #include "ch.h"
 #include "hal.h"
+
 #include "stm32_ltdc.h"
 
 #if STM32_LTDC_USE_LTDC || defined(__DOXYGEN__)
@@ -28,7 +29,7 @@
 /* TODO: Check preconditions (e.g., LTDC is ready).*/
 
 /* Ignore annoying warning messages for actually safe code.*/
-#if __GNUC__
+#if defined(__GNUC__) && !defined(__DOXYGEN__)
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #endif
 
