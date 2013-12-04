@@ -83,7 +83,7 @@ DMA2DDriver DMA2DD1;
 /**
  * @brief   Bits per pixel lookup table.
  */
-static const uint8_t dma2d_bpp[11] = {
+static const uint8_t dma2d_bpp[DMA2D_MAX_PIXFMT_ID + 1] = {
   32, /* DMA2D_FMT_ARGB8888 */
   24, /* DMA2D_FMT_RGB888 */
   16, /* DMA2D_FMT_RGB565 */

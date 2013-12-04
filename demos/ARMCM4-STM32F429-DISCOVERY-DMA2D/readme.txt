@@ -8,8 +8,10 @@ The demo runs on an ST STM32F429I-Discovery board.
 
 ** The Demo **
 
-A simple command shell is activated on virtual serial port SD2 via USB-CDC
-driver (use micro-USB plug on STM32F4-Discovery board).
+A simple command shell is activated on virtual serial port SD1.
+The demo makes use of FMC, LTDC, and DMA2D peripherals to show graphical
+contents on the display of the board, composed both on the on-chip SRAM
+and the on-board SDRAM.
 
 ** Build Procedure **
 

@@ -125,7 +125,8 @@
  */
 
 #define DMA2D_MIN_PIXFMT_ID             0
-#define DMA2D_MAX_PIXFMT_ID             7
+#define DMA2D_MAX_PIXFMT_ID             11
+#define DMA2D_MIN_OUTPIXFMT_ID          0
 #define DMA2D_MAX_OUTPIXFMT_ID          4
 
 #define DMA2D_MAX_OFFSET                ((1 << 14) - 1)

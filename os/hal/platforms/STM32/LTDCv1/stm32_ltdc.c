@@ -89,7 +89,7 @@ LTDCDriver LTDCD1;
 /**
  * @brief   Bits per pixel lookup table.
  */
-static const uint8_t ltdc_bpp[8] = {
+static const uint8_t ltdc_bpp[LTDC_MAX_PIXFMT_ID + 1] = {
   32, /* LTDC_FMT_ARGB8888 */
   24, /* LTDC_FMT_RGB888 */
   16, /* LTDC_FMT_RGB565 */
