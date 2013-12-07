@@ -203,6 +203,8 @@ SECTIONS
         *(COMMON)
         . = ALIGN(4);
         PROVIDE(_bss_end = .);
+		PROVIDE(end = .);
+		_end = .;
     } > ram
     
     .sdram (NOLOAD) : ALIGN(4) SUBALIGN(4)
@@ -211,9 +213,6 @@ SECTIONS
     	KEEP(*(.sdram.*))
     } > sdram
 }
-
-PROVIDE(end = .);
-_end            = .;
 
 __heap_base__   = _end;
 __heap_end__    = __ram_end__;
