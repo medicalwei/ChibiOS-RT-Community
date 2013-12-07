@@ -21,6 +21,7 @@
 
 #include "ch.h"
 #include "hal.h"
+
 #include "stm32_ltdc.h"
 
 #if STM32_LTDC_USE_LTDC || defined(__DOXYGEN__)
@@ -28,7 +29,7 @@
 /* TODO: Check preconditions (e.g., LTDC is ready).*/
 
 /* Ignore annoying warning messages for actually safe code.*/
-#if __GNUC__
+#if defined(__GNUC__) && !defined(__DOXYGEN__)
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #endif
 
@@ -88,7 +89,7 @@ LTDCDriver LTDCD1;
 /**
  * @brief   Bits per pixel lookup table.
  */
-static const uint8_t ltdc_bpp[8] = {
+static const uint8_t ltdc_bpp[LTDC_MAX_PIXFMT_ID + 1] = {
   32, /* LTDC_FMT_ARGB8888 */
   24, /* LTDC_FMT_RGB888 */
   16, /* LTDC_FMT_RGB565 */

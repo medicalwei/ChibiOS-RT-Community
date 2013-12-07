@@ -22,14 +22,12 @@
 #include "ch.h"
 #include "hal.h"
 
-#include "ili9341.h"
-#include "stm32_ltdc.h"
 #include "stm32_dma2d.h"
 
 #if STM32_DMA2D_USE_DMA2D || defined(__DOXYGEN__)
 
 /* Ignore annoying warning messages for actually safe code.*/
-#if __GNUC__
+#if defined(__GNUC__) && !defined(__DOXYGEN__)
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #endif
 
@@ -85,7 +83,7 @@ DMA2DDriver DMA2DD1;
 /**
  * @brief   Bits per pixel lookup table.
  */
-static const uint8_t dma2d_bpp[11] = {
+static const uint8_t dma2d_bpp[DMA2D_MAX_PIXFMT_ID + 1] = {
   32, /* DMA2D_FMT_ARGB8888 */
   24, /* DMA2D_FMT_RGB888 */
   16, /* DMA2D_FMT_RGB565 */
