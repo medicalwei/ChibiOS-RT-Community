@@ -89,7 +89,6 @@ CSRC = $(PORTSRC) \
        stmdrivers/stm32f429i_discovery_sdram.c stmdrivers/stm32f4xx_fmc.c \
        main.c \
        wolf3d_palette.c \
-       ili9341.c \
        res/wolf3d_vgagraph_chunk87.c \
        # EOL
 

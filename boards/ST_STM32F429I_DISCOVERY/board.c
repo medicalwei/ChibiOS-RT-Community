@@ -25,7 +25,9 @@
 #include "stm32_ltdc.h"
 #include "stm32_dma2d.h"
 
+#if ILI9341_USE_DRIVER
 extern ILI9341Driver ILI9341D1;
+#endif
 
 #if HAL_USE_PAL || defined(__DOXYGEN__)
 /**
@@ -124,5 +126,7 @@ void boardInit(void) {
   dma2dInit();
 #endif
 
+#if ILI9341_USE_DRIVER
   ili9341ObjectInit(&ILI9341D1);
+#endif
 }

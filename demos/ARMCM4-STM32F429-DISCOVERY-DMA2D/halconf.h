@@ -307,6 +307,15 @@
 #define SPI_USE_MUTUAL_EXCLUSION    TRUE
 #endif
 
+/*===========================================================================*/
+/* Project-specific HAL settings.                                            */
+/*===========================================================================*/
+
+/**
+ * @brief   Enables the ILI9341 driver.
+ */
+#define ILI9341_USE_DRIVER          TRUE
+
 #endif /* _HALCONF_H_ */
 
 /** @} */
