@@ -203,8 +203,8 @@ SECTIONS
         *(COMMON)
         . = ALIGN(4);
         PROVIDE(_bss_end = .);
-		PROVIDE(end = .);
-		_end = .;
+        PROVIDE(end = .);
+        _end = .;
     } > ram
     
     .sdram (NOLOAD) : ALIGN(4) SUBALIGN(4)

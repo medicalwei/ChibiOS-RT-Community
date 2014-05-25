@@ -25,24 +25,7 @@
 #include "stmdrivers/stm32f429i_discovery_sdram.h"
 #include "stmdrivers/stm32f4xx_fmc.h"
 
-#include "ili9341.h"
-#include "stm32_ltdc.h"
-#include "stm32_dma2d.h"
-
-#include "res/wolf3d_vgagraph_chunk87.h"
-
 #define IS42S16400J_SIZE             0x400000
-
-/*
- * Erases the whole SDRAM bank.
- */
-static void sdram_bulk_erase(void) {
-
-  volatile uint8_t *p = (volatile uint8_t *)SDRAM_BANK_ADDR;
-  volatile uint8_t *end = p + IS42S16400J_SIZE;
-  while (p < end)
-    *p++ = 0;
-}
 
 /*
  * Red LED blinker thread, times are in milliseconds.
@@ -77,276 +60,6 @@ static msg_t Thread2(void *arg) {
   }
   return CH_SUCCESS;
 }
-
-/*===========================================================================*/
-/* LTDC related.                                                             */
-/*===========================================================================*/
-
-static uint8_t frame_buffer[240 * 320 * 3] __attribute__((section(".sdram")));
-
-static uint8_t view_buffer[240 * 320];
-
-extern const ltdc_color_t wolf3d_palette[256];
-
-static const ltdc_window_t ltdc_fullscreen_wincfg = {
-  0,
-  240 - 1,
-  0,
-  320 - 1
-};
-
-static const ltdc_frame_t ltdc_view_frmcfg1 = {
-  view_buffer,
-  240,
-  320,
-  240 * sizeof(uint8_t),
-  LTDC_FMT_L8
-};
-
-static const ltdc_laycfg_t ltdc_view_laycfg1 = {
-  &ltdc_view_frmcfg1,
-  &ltdc_fullscreen_wincfg,
-  LTDC_COLOR_FUCHSIA,
-  0xFF,
-  0x980088,
-  wolf3d_palette,
-  256,
-  LTDC_BLEND_FIX1_FIX2,
-  LTDC_LEF_ENABLE | LTDC_LEF_PALETTE
-};
-
-static const ltdc_frame_t ltdc_screen_frmcfg1 = {
-  frame_buffer,
-  240,
-  320,
-  240 * 3,
-  LTDC_FMT_RGB888
-};
-
-static const ltdc_laycfg_t ltdc_screen_laycfg1 = {
-  &ltdc_screen_frmcfg1,
-  &ltdc_fullscreen_wincfg,
-  LTDC_COLOR_FUCHSIA,
-  0xFF,
-  0x980088,
-  NULL,
-  0,
-  LTDC_BLEND_FIX1_FIX2,
-  LTDC_LEF_ENABLE
-};
-
-static const LTDCConfig ltdc_cfg = {
-  /* Display specifications.*/
-  240,                              /**< Screen pixel width.*/
-  320,                              /**< Screen pixel height.*/
-  10,                               /**< Horizontal sync pixel width.*/
-  2,                                /**< Vertical sync pixel height.*/
-  20,                               /**< Horizontal back porch pixel width.*/
-  2,                                /**< Vertical back porch pixel height.*/
-  10,                               /**< Horizontal front porch pixel width.*/
-  4,                                /**< Vertical front porch pixel height.*/
-  0,                                /**< Driver configuration flags.*/
-
-  /* ISR callbacks.*/
-  NULL,                             /**< Line Interrupt ISR, or @p NULL.*/
-  NULL,                             /**< Register Reload ISR, or @p NULL.*/
-  NULL,                             /**< FIFO Underrun ISR, or @p NULL.*/
-  NULL,                             /**< Transfer Error ISR, or @p NULL.*/
-
-  /* Color and layer settings.*/
-  LTDC_COLOR_TEAL,
-  &ltdc_view_laycfg1,
-  NULL
-};
-
-extern LTDCDriver LTDCD1;
-
-const SPIConfig spi_cfg5 = {
-  NULL,
-  GPIOC,
-  GPIOC_SPI5_LCD_CS,
-  ((1 << 3) & SPI_CR1_BR) | SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_MSTR
-};
-
-extern SPIDriver SPID5;
-
-const ILI9341Config ili9341_cfg = {
-  &SPID5,
-  GPIOD,
-  GPIOD_LCD_WRX
-};
-
-static void initialize_lcd(void) {
-
-  static const uint8_t pgamma[15] = {
-    0x0F, 0x29, 0x24, 0x0C, 0x0E, 0x09, 0x4E, 0x78,
-    0x3C, 0x09, 0x13, 0x05, 0x17, 0x11, 0x00
-  };
-  static const uint8_t ngamma[15] = {
-    0x00, 0x16, 0x1B, 0x04, 0x11, 0x07, 0x31, 0x33,
-    0x42, 0x05, 0x0C, 0x0A, 0x28, 0x2F, 0x0F
-  };
-
-  ILI9341Driver *const lcdp = &ILI9341D1;
-
-  /* XOR-checkerboard texture.*/
-  unsigned x, y;
-  for (y = 0; y < 320; ++y)
-    for (x = 0; x < 240; ++x)
-      view_buffer[y * 240 + x] = (uint8_t)(x ^ y);
-
-  ili9341AcquireBus(lcdp);
-  ili9341Select(lcdp);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_FRAME_CTL_NORMAL);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x1B);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_FUNCTION_CTL);
-  ili9341WriteByte(lcdp, 0x0A);
-  ili9341WriteByte(lcdp, 0xA2);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_POWER_CTL_1);
-  ili9341WriteByte(lcdp, 0x10);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_POWER_CTL_2);
-  ili9341WriteByte(lcdp, 0x10);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_VCOM_CTL_1);
-  ili9341WriteByte(lcdp, 0x45);
-  ili9341WriteByte(lcdp, 0x15);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_VCOM_CTL_2);
-  ili9341WriteByte(lcdp, 0x90);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_MEM_ACS_CTL);
-  ili9341WriteByte(lcdp, 0xC8);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_RGB_IF_SIG_CTL);
-  ili9341WriteByte(lcdp, 0xC2);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_FUNCTION_CTL);
-  ili9341WriteByte(lcdp, 0x0A);
-  ili9341WriteByte(lcdp, 0xA7);
-  ili9341WriteByte(lcdp, 0x27);
-  ili9341WriteByte(lcdp, 0x04);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_COL_ADDR);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0xEF);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_PAGE_ADDR);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x01);
-  ili9341WriteByte(lcdp, 0x3F);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_IF_CTL);
-  ili9341WriteByte(lcdp, 0x01);
-  ili9341WriteByte(lcdp, 0x00);
-  ili9341WriteByte(lcdp, 0x06);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_GAMMA);
-  ili9341WriteByte(lcdp, 0x01);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_PGAMMA);
-  ili9341WriteChunk(lcdp, pgamma, 15);
-
-  ili9341WriteCommand(lcdp, ILI9341_SET_NGAMMA);
-  ili9341WriteChunk(lcdp, ngamma, 15);
-
-  ili9341WriteCommand(lcdp, ILI9341_CMD_SLEEP_OFF);
-  chThdSleepMilliseconds(10);
-
-  ili9341WriteCommand(lcdp, ILI9341_CMD_DISPLAY_ON);
-  ili9341WriteCommand(lcdp, ILI9341_SET_MEM);
-  chThdSleepMilliseconds(10);
-
-  ili9341Unselect(lcdp);
-  ili9341ReleaseBus(lcdp);
-}
-
-static const DMA2DConfig dma2d_cfg = {
-  /* ISR callbacks.*/
-  NULL,     /**< Configuration error, or @p NULL.*/
-  NULL,     /**< Palette transfer done, or @p NULL.*/
-  NULL,     /**< Palette access error, or @p NULL.*/
-  NULL,     /**< Transfer watermark, or @p NULL.*/
-  NULL,     /**< Transfer complete, or @p NULL.*/
-  NULL      /**< Transfer error, or @p NULL.*/
-};
-
-static const dma2d_palcfg_t dma2d_palcfg = {
-  wolf3d_palette,
-  256,
-  DMA2D_FMT_ARGB8888
-};
-
-static const dma2d_laycfg_t dma2d_bg_laycfg = {
-  view_buffer,
-  0,
-  DMA2D_FMT_L8,
-  DMA2D_COLOR_RED,
-  0xFF,
-  &dma2d_palcfg
-};
-
-static const dma2d_laycfg_t dma2d_fg_laycfg = {
-  (void *)wolf3d_vgagraph_chunk87,
-  0,
-  DMA2D_FMT_L8,
-  DMA2D_COLOR_LIME,
-  0xFF,
-  &dma2d_palcfg
-};
-
-static const dma2d_laycfg_t dma2d_frame_laycfg = {
-  frame_buffer,
-  0,
-  DMA2D_FMT_RGB888,
-  DMA2D_COLOR_BLUE,
-  0xFF,
-  NULL
-};
-
-static void dma2d_test(void) {
-
-  DMA2DDriver *const dma2dp = &DMA2DD1;
-  LTDCDriver *const ltdcp = &LTDCD1;
-
-  chThdSleepSeconds(1);
-
-  ltdcBgSetConfig(ltdcp, &ltdc_screen_laycfg1);
-  ltdcReload(ltdcp, TRUE);
-
-  dma2dAcquireBus(dma2dp);
-
-  /* Target the frame buffer by default.*/
-  dma2dBgSetConfig(dma2dp, &dma2d_frame_laycfg);
-  dma2dFgSetConfig(dma2dp, &dma2d_frame_laycfg);
-  dma2dOutSetConfig(dma2dp, &dma2d_frame_laycfg);
-
-  /* Copy the background.*/
-  dma2dFgSetConfig(dma2dp, &dma2d_bg_laycfg);
-  dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
-  dma2dJobSetSize(dma2dp, 240, 320);
-  dma2dJobExecute(dma2dp);
-
-  /* Draw the splashscren picture at (8, 0).*/
-  dma2dFgSetConfig(dma2dp, &dma2d_fg_laycfg);
-  dma2dOutSetAddress(dma2dp, dma2dComputeAddress(
-    frame_buffer, ltdc_screen_frmcfg1.pitch, DMA2D_FMT_RGB888, 8, 0
-  ));
-  dma2dOutSetWrapOffset(dma2dp, ltdc_screen_frmcfg1.width - 200);
-  dma2dJobSetMode(dma2dp, DMA2D_JOB_CONVERT);
-  dma2dJobSetSize(dma2dp, 200, 320);
-  dma2dJobExecute(dma2dp);
-
-  dma2dReleaseBus(dma2dp);
-}
-
 
 /*===========================================================================*/
 /* Command line related.                                                     */
@@ -467,7 +180,7 @@ static void cmd_erase(BaseSequentialStream *chp, int argc, char *argv[]) {
 
   tmObjectInit(&tm);
 
-  //XXX tmStartMeasurement(&tm);
+  tmStartMeasurement(&tm);
 
   /* Write data value to all SDRAM memory */
   /* Erase SDRAM memory */
@@ -476,8 +189,8 @@ static void cmd_erase(BaseSequentialStream *chp, int argc, char *argv[]) {
     *(__IO uint8_t*) (SDRAM_BANK_ADDR + counter) = (uint8_t)0x0;
   }
 
-  //XXX tmStopMeasurement(&tm);
-  uint32_t write_ms = 0;//XXX RTT2MS(tm.last);
+  tmStopMeasurement(&tm);
+  uint32_t write_ms = RTT2MS(tm.last);
 
   if (!uwReadwritestatus) {
     chprintf(chp, "SDRAM erased in %dms.\r\n", write_ms);
@@ -716,32 +429,18 @@ int main(void) {
   usbConnectBus(serusbcfg.usbp);
 
   /*
+   * Creating the blinker threads.
+   */
+  chThdCreateStatic(waThread1, sizeof(waThread1),
+                    NORMALPRIO + 10, Thread1, NULL);
+  chThdCreateStatic(waThread2, sizeof(waThread2),
+                    NORMALPRIO + 10, Thread2, NULL);
+
+  /*
    * Initialise SDRAM, board.h has already configured GPIO correctly (except that ST example uses 50MHz not 100MHz?)
    */
   SDRAM_Init();
-  sdram_bulk_erase();
 
-  /*
-   * Activates the LCD-related drivers.
-   */
-  spiStart(&SPID5, &spi_cfg5);
-  ili9341Start(&ILI9341D1, &ili9341_cfg);
-  initialize_lcd();
-  ltdcStart(&LTDCD1, &ltdc_cfg);
-
-  /*
-   * Activates the DMA2D-related drivers.
-   */
-  dma2dStart(&DMA2DD1, &dma2d_cfg);
-  dma2d_test();
-
-  /*
-   * Creating the blinker threads.
-   */
-  chThdCreateStatic(waThread1, sizeof(waThread1), NORMALPRIO + 10,
-                    Thread1, NULL);
-  chThdCreateStatic(waThread2, sizeof(waThread2), NORMALPRIO + 10,
-                    Thread2, NULL);
 
   /*
    * Normal main() thread activity, in this demo it just performs

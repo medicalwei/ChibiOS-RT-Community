@@ -24,6 +24,8 @@
 #include "hal.h"
 #include "ili9341.h"
 
+#if ILI9341_USE_DRIVER
+
 /**
  * @addtogroup ili9341
  * @{
@@ -429,3 +431,5 @@ void ili9341ReadChunk(ILI9341Driver *driverp, uint8_t chunk[],
 #endif /* ILI9341_IM == * */
 
 /** @} */
+
+#endif /* ILI9341_USE_DRIVER */

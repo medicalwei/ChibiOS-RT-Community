@@ -22,6 +22,11 @@
 #ifndef _ILI9341_H_
 #define _ILI9341_H_
 
+#include "ch.h"
+#include "hal.h"
+
+#if ILI9341_USE_DRIVER
+
 /**
  * @addtogroup ili9341
  * @{
@@ -168,6 +173,14 @@
 /*===========================================================================*/
 /* Derived constants and error checks.                                       */
 /*===========================================================================*/
+
+#if !HAL_USE_PAL
+#error "ILI9341 requires PAL driver"
+#endif
+
+#if !HAL_USE_SPI
+#error "ILI9341 requires SPI driver"
+#endif
 
 #if ILI9341_USE_MUTUAL_EXCLUSION && !CH_USE_MUTEXES && !CH_USE_SEMAPHORES
 #error "ILI9341_USE_MUTUAL_EXCLUSION requires CH_USE_MUTEXES and/or CH_USE_SEMAPHORES"
@@ -588,4 +601,5 @@ extern "C" {
 
 /** @} */
 
+#endif /* ILI9341_USE_DRIVER */
 #endif /* _ILI9341_H_ */
