@@ -1556,7 +1556,7 @@
     defined(__DOXYGEN__)
 #define STM32_PLLSAIQ               (STM32_PLLSAIQ_VALUE << 24)
 #else
-#error "invalid STM32_PLLSAIR_VALUE value specified"
+#error "invalid STM32_PLLSAIQ_VALUE value specified"
 #endif
 
 /**
